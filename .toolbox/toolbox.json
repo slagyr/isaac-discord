@@ -1,0 +1,105 @@
+{
+  "skills": {
+    "toolbox": {
+      "url": "https://raw.githubusercontent.com/slagyr/toolbox/main/SKILL.md",
+      "fetched_at": "2026-04-09T04:55:50Z",
+      "sha256": "b45bb2a83ced2464eab209edad7b9f69889bf9c33e333585c54ba8fc24ed7c6d",
+      "files": [
+        "SKILL.md"
+      ]
+    },
+    "tdd": {
+      "url": "https://raw.githubusercontent.com/slagyr/agent-lib/main/skills/tdd/SKILL.md",
+      "fetched_at": "2026-04-09T04:55:50Z",
+      "sha256": "010e2b3ca1de3481de48323d8ac0bc9f325253978da3bd2da3317666e6f1a3ca",
+      "files": [
+        "SKILL.md"
+      ]
+    },
+    "crap4clj": {
+      "url": "https://raw.githubusercontent.com/unclebob/crap4clj/master/SKILL.md",
+      "fetched_at": "2026-04-09T04:55:50Z",
+      "sha256": "87060a27c0510b646498d0d61ca8b5702abce0d30c234bf2b099a28f31d79224",
+      "files": [
+        "SKILL.md"
+      ]
+    },
+    "clj-mutate": {
+      "url": "https://raw.githubusercontent.com/slagyr/clj-mutate/master/SKILL.md",
+      "fetched_at": "2026-04-09T04:55:50Z",
+      "sha256": "5c7b161d9c0a729fdf3667db929fffa862cd7ed4c61432511d625b7df797a478",
+      "files": [
+        "SKILL.md"
+      ]
+    },
+    "scrap": {
+      "url": "https://raw.githubusercontent.com/slagyr/scrap/main/SKILL.md",
+      "fetched_at": "2026-05-05T00:00:00Z",
+      "sha256": "69a91d95a65610ec1ea4f951784a4fb8622728e640e59dbaead8feea58866e50",
+      "files": [
+        "SKILL.md"
+      ]
+    },
+    "gherclj": {
+      "url": "https://raw.githubusercontent.com/slagyr/agent-lib/main/skills/gherclj/SKILL.md",
+      "fetched_at": "2026-04-27T00:00:00Z",
+      "sha256": "58abfeeb6b3e71eb32dba502d04533c6f2c6bd56f88d243d85c78387ca163a28",
+      "files": [
+        "SKILL.md"
+      ]
+    },
+    "clojure": {
+      "url": "https://raw.githubusercontent.com/slagyr/agent-lib/main/skills/clojure/SKILL.md",
+      "fetched_at": "2026-04-09T04:55:50Z",
+      "sha256": "4f4ea1d335987416e62f02cb1ef7384f141e854de520958de2f9dc40e8ed1c04",
+      "files": [
+        "SKILL.md"
+      ]
+    },
+    "c3kit": {
+      "url": "https://raw.githubusercontent.com/slagyr/agent-lib/main/skills/c3kit/SKILL.md",
+      "fetched_at": "2026-04-09T04:55:50Z",
+      "sha256": "66818ab1e1c7493d0353e0593190de6f46d811800301e443e8f572f6a4cfd60d",
+      "files": [
+        "SKILL.md"
+      ]
+    }
+  },
+  "commands": {
+    "plan": {
+      "url": "https://raw.githubusercontent.com/slagyr/agent-lib/main/commands/plan.md",
+      "fetched_at": "2026-04-09T04:55:50Z",
+      "sha256": "d51746614f8521098817d62e6fdab2fb66042b24fad390379c9620b2cc3fcd3c",
+      "files": [
+        "plan.md"
+      ]
+    },
+    "todo": {
+      "url": "https://raw.githubusercontent.com/slagyr/agent-lib/main/commands/todo.md",
+      "fetched_at": "2026-04-09T04:55:50Z",
+      "sha256": "731ad750a1e4866123d1901870d707fdb04a70dadcab27f6ffab94137e392e9d",
+      "files": [
+        "todo.md"
+      ]
+    },
+    "work": {
+      "url": "https://raw.githubusercontent.com/slagyr/agent-lib/main/commands/work.md",
+      "fetched_at": "2026-04-22T03:00:00Z",
+      "sha256": "f0f96d6dc52cc14813140001f7e93d8c73949516b3c820304b53f903e1f5e171",
+      "files": [
+        "work.md"
+      ]
+    },
+    "plan-with-features": {
+      "url": "https://raw.githubusercontent.com/slagyr/agent-lib/main/commands/plan-with-features.md",
+      "fetched_at": "2026-04-27T00:00:00Z",
+      "sha256": "5f5e8674b0be18854a60024d8448405d3619cf9640abf30d579e34363c208437",
+      "files": [
+        "plan-with-features.md"
+      ]
+    }
+  },
+  "rules": {},
+  "modes": {},
+  "agents": {}
+}
