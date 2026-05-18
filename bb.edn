@@ -1,7 +1,7 @@
-{:paths ["src" "resources" "spec"]
+{:paths ["src" "spec"]
 
  :deps  {io.github.slagyr/isaac    {:git/url "git@github.com:slagyr/isaac.git"
-                                    :git/sha "5e1ec209047436b230fb8de770fc0f3f857af6be"}
+                                    :git/sha "4c5ab03efc72705cb9fdb249b3b9675cb2f718fc"}
          speclj/speclj             {:mvn/version "3.13.0"}
          babashka/process          {:mvn/version "0.5.22"}
          io.github.slagyr/gherclj  {:git/tag "v1.2.0" :git/sha "de202c8"}}

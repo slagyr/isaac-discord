@@ -1,8 +1,7 @@
-{:id       :isaac.comm.discord
- :version  "0.1.0"
- :requires []
- :extends  {:comm {:discord {:isaac/factory isaac.comm.discord/make
-                             :token          {:type :string}
-                             :crew           {:type :string}
-                             :message-cap    {:type :int}
-                             :allow-from     {:type :map}}}}}
+{:id      :isaac.comm.discord
+ :version "0.1.0"
+ :comm    {:discord {:factory isaac.comm.discord/make
+                     :schema  {:token       {:type :string}
+                               :crew        {:type :string}
+                               :message-cap {:type :int}
+                               :allow-from  {:type :map}}}}}
