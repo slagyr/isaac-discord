@@ -14,4 +14,18 @@
                                                            :guilds {:type        :seq
                                                                     :spec        {:type :string}
                                                                     :description "Guild (server) IDs the bot accepts messages from."}}
-                                             :description "Inbound-message allowlist with two keys: :users and :guilds."}}}}}
+                                             :description "Inbound-message allowlist with two keys: :users and :guilds."}
+                               :channels    {:type        :map
+                                             :key-spec    {:type :string}
+                                             :value-spec  {:type   :map
+                                                           :schema {:crew    {:type        :string
+                                                                              :validations [[:nil-or? [:crew-exists?]]]
+                                                                              :description "Crew to route messages from this channel to. Overrides the slot-level :crew."}
+                                                                    :model   {:type        :string
+                                                                              :validations [[:nil-or? [:model-exists?]]]
+                                                                              :description "Model to use for this channel. Overrides the slot-level :model and the crew's default model."}
+                                                                    :session {:type        :string
+                                                                              :description "Session key for messages from this channel. Defaults to 'discord-<channel-id>' when omitted."}
+                                                                    :name    {:type        :string
+                                                                              :description "Friendly display name; surfaced to the LLM as channel_label metadata."}}}
+                                             :description "Per-channel routing overrides: map of Discord channel ID (string) to {:crew :model :session :name}."}}}}}
