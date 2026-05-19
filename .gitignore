@@ -1,1 +1,8 @@
-.toolbox/
+*.iml
+.clj-kondo/
+.cpcache/
+.idea/
+.lsp/
+/.serena/
+/.toolbox/
+/target/
