@@ -1,13 +1,28 @@
 {:paths ["src" "spec"]
 
- :deps  {io.github.slagyr/isaac    {:git/url "git@github.com:slagyr/isaac.git"
-                                    :git/sha "4c5ab03efc72705cb9fdb249b3b9675cb2f718fc"}
-         speclj/speclj             {:mvn/version "3.13.0"}
-         babashka/process          {:mvn/version "0.5.22"}
-         io.github.slagyr/gherclj  {:git/tag "v1.2.0" :git/sha "de202c8"}}
-
+ ;; bb tasks auto-detect isaac: a sibling ../isaac checkout (so cross-repo
+ ;; edits land without pushing) when present, otherwise the pinned git sha
+ ;; (so fresh clones / CI just work). Set ISAAC_GIT=1 to force git even
+ ;; when the local checkout exists.
+ ;;
+ ;; isaac-spec uses :local/root "../isaac/spec" rather than :local/root
+ ;; "../isaac" + :deps/root "spec" — tools.deps applies the inner deps.edn's
+ ;; :deps but not its :paths when the same local-root is reused with
+ ;; :deps/root, leaving ../isaac/spec off the classpath.
  :tasks
- {spec     {:doc      "Run discord specs"
+ {:init (let [use-local? (and (not (System/getenv "ISAAC_GIT"))
+                              (babashka.fs/exists? "../isaac"))]
+          (babashka.deps/add-deps
+            {:deps (if use-local?
+                     '{io.github.slagyr/isaac      {:local/root "../isaac"}
+                       io.github.slagyr/isaac-spec {:local/root "../isaac/spec"}}
+                     '{io.github.slagyr/isaac      {:git/url "git@github.com:slagyr/isaac.git"
+                                                    :git/sha "c21d6b27c9bd3e10ab0cb960ce893337bdfb19d6"}
+                       io.github.slagyr/isaac-spec {:git/url   "git@github.com:slagyr/isaac.git"
+                                                    :git/sha   "c21d6b27c9bd3e10ab0cb960ce893337bdfb19d6"
+                                                    :deps/root "spec"}})}))
+
+  spec     {:doc      "Run discord specs"
             :requires ([speclj.main :as speclj])
             :task     (apply speclj/-main "-c" "-D" "spec" *command-line-args*)}
 
@@ -20,7 +35,7 @@
                                                 (map (fn [f] (.getPath f)))
                                                 (filter (fn [p] (clojure.string/ends-with? p ".feature")))
                                                 sort))]
-                        (apply main/-main (concat ["-s" "isaac.features.steps.*"]
+                        (apply main/-main (concat ["-s" "isaac.**-steps"]
                                                   ["-t" "~slow" "-t" "~wip"]
                                                   feature-args)))}
 

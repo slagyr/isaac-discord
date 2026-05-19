@@ -1,4 +1,4 @@
-(ns isaac.features.steps.discord
+(ns isaac.comm.discord.discord-steps
   (:require
     [babashka.http-client :as http]
     [cheshire.core :as json]
@@ -7,6 +7,7 @@
     [gherclj.core :as g :refer [defgiven defwhen defthen helper!]]
     [isaac.comm.discord :as discord]
     [isaac.comm.discord.gateway :as gateway]
+    [isaac.comm.registry :as comm-registry]
     [isaac.config.loader :as config]
     [isaac.fs :as fs]
     [isaac.llm.api.grover :as grover]
@@ -14,7 +15,19 @@
     [isaac.server.app :as app]
     [isaac.spec-helper :as storage]))
 
-(helper! isaac.features.steps.discord)
+(helper! isaac.comm.discord.discord-steps)
+
+;; Bridge the in-memory fake gateway into integrations started by the server.
+;; Upstream isaac's server-running step does not propagate :discord-connect-ws!
+;; into app/start! :connect-ws!, so we wrap make to inject it from g state.
+(alter-var-root #'discord/make
+  (fn [original]
+    (fn [host]
+      (let [fake-ws (try (g/get :discord-connect-ws!) (catch Exception _ nil))
+            host    (if (and fake-ws (not (:connect-ws! host)))
+                      (assoc host :connect-ws! fake-ws)
+                      host)]
+        (original host)))))
 
 (defn- kv-cells->map [cells]
   (when (and (seq cells) (even? (count cells)))
@@ -140,7 +153,8 @@
         connect-fn)))
 
 (defn- active-integration []
-  (or (g/get :discord-integration) (app/discord-integration)))
+  (or (g/get :discord-integration)
+      (comm-registry/comm-for "discord")))
 
 (defn- route-state [payload]
   (let [di           (active-integration)
@@ -157,7 +171,8 @@
       (and (:count before) (= (:count before) count))))
 
 (defn- active-client []
-  (or (g/get :discord-client) (app/discord-client)))
+  (or (g/get :discord-client)
+      (:client (some-> (active-integration) discord/client))))
 
 (defn- queue-head []
   (first (gateway/accepted-messages (active-client))))
@@ -165,13 +180,23 @@
 (defn- sent-op [op]
   (some #(when (= op (:op %)) %) @(g/get :discord-sent)))
 
+(defn- ensure-discord-module-declared! []
+  ;; isaac's discover! only adds modules from config :modules or {cwd}/modules/.
+  ;; The lifecycle features assume discord auto-activates from server config —
+  ;; pre-seed :modules so discover! finds isaac-discord's manifest (at src/) on
+  ;; the classpath.
+  (g/update! :server-config
+             #(update (or % {}) :modules
+                      (fn [m] (merge {:isaac.comm.discord {:local/root "."}} m)))))
+
 (defn discord-faked []
   (let [sent       (atom [])
         callbacks* (atom nil)
         connect-fn (make-connect-ws! sent callbacks*)]
     (g/assoc! :discord-sent sent)
     (g/assoc! :discord-callbacks callbacks*)
-    (g/assoc! :discord-connect-ws! connect-fn)))
+    (g/assoc! :discord-connect-ws! connect-fn)
+    (ensure-discord-module-declared!)))
 
 (defn discord-configured [table]
   (g/assoc! :discord-config (into {} (map (fn [[k v]] [k (parse-value v)]) (table-map table)))))
@@ -306,63 +331,63 @@
 
 ;; region ----- Routing -----
 
-(defgiven "the Discord Gateway is faked in-memory" discord/discord-faked
+(defgiven "the Discord Gateway is faked in-memory" isaac.comm.discord.discord-steps/discord-faked
   "Initializes :discord-sent (outbound payload capture) and
    :discord-callbacks (inbound handlers). Prerequisite for every other
    discord step — always include in Background.")
 
-(defgiven "Discord is configured with:" discord/discord-configured)
+(defgiven "Discord is configured with:" isaac.comm.discord.discord-steps/discord-configured)
 
-(defwhen "the Discord client connects" discord/discord-connects
+(defwhen "the Discord client connects" isaac.comm.discord.discord-steps/discord-connects
   "Connects via discord/connect! when state-dir is set (routing enabled),
    else via the lower-level gateway/connect! (no routing). Uses virtual
    clock mode — advance time with 'the test clock advances N ms'.")
 
-(defwhen "Discord sends HELLO:" discord/discord-sends-hello
+(defwhen "Discord sends HELLO:" isaac.comm.discord.discord-steps/discord-sends-hello
   "Synthesizes an inbound HELLO gateway payload (op 10) via the on-message
    callback. Table cell 'heartbeat_interval' sets the interval.")
 
-(defwhen "Discord sends READY:" discord/discord-sends-ready
+(defwhen "Discord sends READY:" isaac.comm.discord.discord-steps/discord-sends-ready
   "Synthesizes an inbound READY dispatch (op 0 t=READY) via the
    on-message callback. Table cell 'session_id' is echoed into the
    payload.")
 
-(defgiven #"the Discord client is ready as bot \"([^\"]+)\"" discord/discord-client-ready-as-bot
+(defgiven #"the Discord client is ready as bot \"([^\"]+)\"" isaac.comm.discord.discord-steps/discord-client-ready-as-bot
   "Shortcut for the usual connect→HELLO→READY handshake. Sends HELLO
    with heartbeat_interval 45000 and a READY with a fixed session_id and
    the given bot user id. Use when the handshake isn't the focus.")
 
-(defwhen "Discord sends MESSAGE_CREATE:" discord/discord-sends-message-create
+(defwhen "Discord sends MESSAGE_CREATE:" isaac.comm.discord.discord-steps/discord-sends-message-create
   "Synthesizes an inbound MESSAGE_CREATE. Runs HTTP-post stubbing, fires
    the on-message callback, and — if routing is enabled and the message
    would create a new session — also invokes discord/process-message!
    directly. Captures :llm-request from grover.")
 
-(defwhen "the test clock advances {n:int} milliseconds" discord/test-clock-advances
+(defwhen "the test clock advances {n:int} milliseconds" isaac.comm.discord.discord-steps/test-clock-advances
   "Advances the virtual clock on the discord client. Only works when
    the client was connected in :clock-mode :virtual (the default for
    the discord test steps).")
 
-(defwhen "Discord stays silent for {n:int} milliseconds" discord/discord-stays-silent-for)
+(defwhen "Discord stays silent for {n:int} milliseconds" isaac.comm.discord.discord-steps/discord-stays-silent-for)
 
-(defwhen "Discord closes the connection with code {n:int}" discord/discord-closes-connection)
+(defwhen "Discord closes the connection with code {n:int}" isaac.comm.discord.discord-steps/discord-closes-connection)
 
-(defwhen "Discord closes the connection with code {n:int} reason {reason:string}" discord/discord-closes-connection-with-reason)
+(defwhen "Discord closes the connection with code {n:int} reason {reason:string}" isaac.comm.discord.discord-steps/discord-closes-connection-with-reason)
 
-(defthen "the Discord client sends IDENTIFY:" discord/discord-sends-identify)
+(defthen "the Discord client sends IDENTIFY:" isaac.comm.discord.discord-steps/discord-sends-identify)
 
-(defthen "the Discord client sends RESUME:" discord/discord-sends-resume)
+(defthen "the Discord client sends RESUME:" isaac.comm.discord.discord-steps/discord-sends-resume)
 
-(defthen "the Discord client sends HEARTBEAT" discord/discord-sends-heartbeat)
+(defthen "the Discord client sends HEARTBEAT" isaac.comm.discord.discord-steps/discord-sends-heartbeat)
 
-(defthen "the Discord client is connected" discord/discord-client-connected)
+(defthen "the Discord client is connected" isaac.comm.discord.discord-steps/discord-client-connected)
 
-(defthen "the Discord client is disconnected" discord/discord-client-disconnected)
+(defthen "the Discord client is disconnected" isaac.comm.discord.discord-steps/discord-client-disconnected)
 
-(defthen "the Discord client accepted a message with:" discord/discord-client-accepted-message)
+(defthen "the Discord client accepted a message with:" isaac.comm.discord.discord-steps/discord-client-accepted-message)
 
-(defthen "the Discord client accepted no messages" discord/discord-client-accepted-no-messages)
+(defthen "the Discord client accepted no messages" isaac.comm.discord.discord-steps/discord-client-accepted-no-messages)
 
-(defthen "the EDN file \"{path}\" matches:" discord/edn-file-matches)
+(defthen "the EDN file \"{path}\" matches:" isaac.comm.discord.discord-steps/edn-file-matches)
 
 ;; endregion ^^^^^ Routing ^^^^^

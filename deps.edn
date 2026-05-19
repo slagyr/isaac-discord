@@ -4,9 +4,15 @@
          org.babashka/http-client {:mvn/version "0.4.22"}}
 
  :aliases
- {:test {:extra-paths ["spec"]
-         :extra-deps  {io.github.slagyr/isaac   {:git/url "git@github.com:slagyr/isaac.git"
-                                                 :git/sha "4c5ab03efc72705cb9fdb249b3b9675cb2f718fc"}
-                       speclj/speclj            {:mvn/version "3.13.0"}
-                       babashka/process         {:mvn/version "0.5.22"}
-                       io.github.slagyr/gherclj {:git/tag "v1.2.0" :git/sha "de202c8"}}}}}
+ {:dev-local {:override-deps {io.github.slagyr/isaac      {:local/root "../isaac"}
+                              io.github.slagyr/isaac-spec {:local/root "../isaac/spec"}}}
+
+  :test {:extra-paths ["spec"]
+         :extra-deps  {io.github.slagyr/isaac      {:git/url "git@github.com:slagyr/isaac.git"
+                                                    :git/sha "c21d6b27c9bd3e10ab0cb960ce893337bdfb19d6"}
+                       io.github.slagyr/isaac-spec {:git/url "git@github.com:slagyr/isaac.git"
+                                                    :git/sha "c21d6b27c9bd3e10ab0cb960ce893337bdfb19d6"
+                                                    :deps/root "spec"}
+                       speclj/speclj               {:mvn/version "3.13.0"}
+                       babashka/process            {:mvn/version "0.5.22"}
+                       io.github.slagyr/gherclj    {:git/tag "v1.3.0" :git/sha "9c3bb1d"}}}}}
