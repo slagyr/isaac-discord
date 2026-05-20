@@ -10,7 +10,7 @@ Feature: Discord Gateway reconnect
     Given the Discord Gateway is faked in-memory
     And config:
       | log.output        | memory     |
-      | comms.discord.token | test-token |
+      | comms.discord.discord/token | test-token |
     And the Discord client is ready as bot "bot-default"
 
   Scenario: resumable disconnect triggers RESUME with session_id and last sequence

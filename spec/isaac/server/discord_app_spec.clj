@@ -23,7 +23,7 @@
                     discord-gateway/stop! (fn [client] (reset! stopped client))]
         (sut/start! {:port               0
                      :state-dir          "/tmp/isaac"
-                     :cfg                {:comms {:discord {:token "test-token"}}}
+                     :cfg                {:comms {:discord {:discord/token "test-token"}}}
                      :start-http-server? false})
         (sut/stop!))
       (should= "/tmp/isaac" (:state-dir @connected))
@@ -54,7 +54,7 @@
                        :port                 0
                        :start-http-server?   false})
           (fs/spit "/tmp/isaac-discord/.isaac/config/isaac.edn"
-                   (pr-str {:comms {:discord {:token "new-token"}}}))
+                   (pr-str {:comms {:discord {:discord/token "new-token"}}}))
           (change-source/notify-path! source "/tmp/isaac-discord/.isaac/config/isaac.edn")
           (helper/await-condition #(some? @connected))
           (sut/stop!)))
@@ -66,10 +66,10 @@
       (binding [fs/*fs* (fs/mem-fs)]
         (fs/mkdirs "/tmp/isaac-discord/.isaac/config")
         (fs/spit "/tmp/isaac-discord/.isaac/config/isaac.edn"
-                 (pr-str {:comms {:discord {:token "old-token"}}}))
+                 (pr-str {:comms {:discord {:discord/token "old-token"}}}))
         (with-redefs [discord/connect!      (fn [_] {:client ::discord-client})
                       discord-gateway/stop! (fn [client] (reset! stopped client))]
-          (sut/start! {:cfg                  {:comms {:discord {:token "old-token"}}}
+          (sut/start! {:cfg                  {:comms {:discord {:discord/token "old-token"}}}
                        :config-change-source source
                        :state-dir            "/tmp/isaac-discord/.isaac"
                        :port                 0
@@ -87,12 +87,12 @@
       (binding [fs/*fs* (fs/mem-fs)]
         (fs/mkdirs "/tmp/isaac-discord/.isaac/config/crew")
         (fs/spit "/tmp/isaac-discord/.isaac/config/isaac.edn"
-                 (pr-str {:comms {:discord {:token "stable-token"}}}))
+                 (pr-str {:comms {:discord {:discord/token "stable-token"}}}))
         (fs/spit "/tmp/isaac-discord/.isaac/config/crew/main.edn"
                  (pr-str {:soul "old"}))
         (with-redefs [discord/connect!      (fn [_] (swap! connect-count inc) {:client ::discord-client})
                       discord-gateway/stop! (fn [_] nil)]
-          (sut/start! {:cfg                  {:comms {:discord {:token "stable-token"}}}
+          (sut/start! {:cfg                  {:comms {:discord {:discord/token "stable-token"}}}
                        :config-change-source source
                        :state-dir            "/tmp/isaac-discord/.isaac"
                        :port                 0

@@ -215,9 +215,9 @@
           (g/assoc! :discord-client (:client result))
           (when-let [di (:integration result)]
             (g/assoc! :discord-integration di))))
-      (let [client (gateway/connect! {:token             (config-value cfg "token")
-                                      :allow-from-users  (config-value cfg "allow-from.users")
-                                      :allow-from-guilds (config-value cfg "allow-from.guilds")
+      (let [client (gateway/connect! {:token             (config-value cfg "discord/token")
+                                      :allow-from-users  (config-value cfg "discord/allow-from.users")
+                                      :allow-from-guilds (config-value cfg "discord/allow-from.guilds")
                                       :clock-mode        :virtual
                                       :connect-ws!       (fake-connect!)})]
         (g/assoc! :discord-client client)))))

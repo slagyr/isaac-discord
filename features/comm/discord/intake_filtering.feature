@@ -6,11 +6,11 @@ Feature: Discord intake filtering
     Given the Discord Gateway is faked in-memory
     And config:
       | log.output          | memory     |
-      | comms.discord.token | test-token |
+      | comms.discord.discord/token | test-token |
 
   Scenario: guild post accepted when its guild is allowlisted
     Given config:
-      | comms.discord.allow-from.guilds | 789012 |
+      | comms.discord.discord/allow-from.guilds | 789012 |
     And the Discord client is ready as bot "bot-default"
     When Discord sends MESSAGE_CREATE:
       | channel_id | 999001 |
@@ -23,7 +23,7 @@ Feature: Discord intake filtering
 
   Scenario: guild post dropped when its guild is not allowlisted
     Given config:
-      | comms.discord.allow-from.guilds | 789012 |
+      | comms.discord.discord/allow-from.guilds | 789012 |
     And the Discord client is ready as bot "bot-default"
     When Discord sends MESSAGE_CREATE:
       | channel_id | 999001 |
@@ -37,7 +37,7 @@ Feature: Discord intake filtering
 
   Scenario: DM accepted when its author is allowlisted
     Given config:
-      | comms.discord.allow-from.users | 274692 |
+      | comms.discord.discord/allow-from.users | 274692 |
     And the Discord client is ready as bot "bot-default"
     When Discord sends MESSAGE_CREATE:
       | channel_id | 555001 |
@@ -49,7 +49,7 @@ Feature: Discord intake filtering
 
   Scenario: DM dropped when its author is not allowlisted
     Given config:
-      | comms.discord.allow-from.users | 274692 |
+      | comms.discord.discord/allow-from.users | 274692 |
     And the Discord client is ready as bot "bot-default"
     When Discord sends MESSAGE_CREATE:
       | channel_id | 555001 |
@@ -62,8 +62,8 @@ Feature: Discord intake filtering
 
   Scenario: bot's own message is dropped even when allowlists match
     Given config:
-      | comms.discord.allow-from.guilds | 789012 |
-      | comms.discord.allow-from.users  | 555    |
+      | comms.discord.discord/allow-from.guilds | 789012 |
+      | comms.discord.discord/allow-from.users  | 555    |
     And the Discord client is ready as bot "555"
     When Discord sends MESSAGE_CREATE:
       | channel_id | 999001 |

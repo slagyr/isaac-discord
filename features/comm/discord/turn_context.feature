@@ -18,9 +18,9 @@ Feature: Discord per-turn context
     Given default Grover setup in "/test/discord-context"
     And the Discord Gateway is faked in-memory
     And config:
-      | comms.discord.token             | test-token |
-      | comms.discord.allow-from.users  | 123        |
-      | comms.discord.allow-from.guilds | G789       |
+      | comms.discord.discord/token             | test-token |
+      | comms.discord.discord/allow-from.users  | 123        |
+      | comms.discord.discord/allow-from.guilds | G789       |
       | sessions.naming-strategy        | sequential |
     And the Discord client is ready as bot "bot-default"
 
@@ -55,7 +55,7 @@ Feature: Discord per-turn context
 
   Scenario: configured channel label and guild name are included in the untrusted prefix
     Given config:
-      | comms.discord.channels.C999.name | cooking |
+      | comms.discord.discord/channels.C999.name | cooking |
     And the following model responses are queued:
       | model | type | content |
       | echo  | text | ok      |

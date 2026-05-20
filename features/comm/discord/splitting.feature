@@ -4,7 +4,7 @@ Feature: Discord long-message splitting
   under the cap, preserving ordering. Splits prefer newline boundaries
   when available; a single line longer than the cap is hard-split.
 
-  The cap is configured via comms.discord.message-cap (default 2000),
+  The cap is configured via comms.discord.discord/message-cap (default 2000),
   which scenarios override to small values so test fixtures can stay
   short and readable.
 
@@ -12,15 +12,15 @@ Feature: Discord long-message splitting
     Given default Grover setup in "/test/discord-splitting"
     And the Discord Gateway is faked in-memory
     And config:
-      | comms.discord.token             | test-token |
-      | comms.discord.allow-from.users  | 123        |
-      | comms.discord.allow-from.guilds | G789       |
+      | comms.discord.discord/token             | test-token |
+      | comms.discord.discord/allow-from.users  | 123        |
+      | comms.discord.discord/allow-from.guilds | G789       |
       | sessions.naming-strategy        | sequential |
     And the Discord client is ready as bot "bot-default"
 
   Scenario: a response longer than the message cap is split at newline boundaries
     Given config:
-      | comms.discord.message-cap | 13 |
+      | comms.discord.discord/message-cap | 13 |
     And the following model responses are queued:
       | model | type | content                          |
       | echo  | text | alpha bravo\ncharlie delta\necho |
@@ -41,7 +41,7 @@ Feature: Discord long-message splitting
 
   Scenario: a single line longer than the cap is hard-split at the cap boundary
     Given config:
-      | comms.discord.message-cap | 5 |
+      | comms.discord.discord/message-cap | 5 |
     And the following model responses are queued:
       | model | type | content    |
       | echo  | text | abcdefghij |

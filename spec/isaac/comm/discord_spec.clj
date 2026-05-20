@@ -36,21 +36,21 @@
 
   (it "posts the completed turn back to the originating Discord channel"
     (let [captured    (atom nil)
-          integration (sut/->DiscordIntegration test-dir nil (atom {:token "test-token"}) (atom nil))]
+          integration (sut/->DiscordIntegration test-dir nil (atom {:discord/token "test-token"}) (atom nil))]
       (with-redefs [rest/post-message! #(reset! captured %)]
         (comm/on-turn-end integration "discord-C999" {:content "hi back"})
         (should= {:channel-id "C999" :content "hi back" :message-cap nil :token "test-token"} @captured))))
 
   (it "posts a typing indicator on turn start"
     (let [captured    (atom nil)
-          integration (sut/->DiscordIntegration test-dir nil (atom {:token "test-token"}) (atom nil))]
+          integration (sut/->DiscordIntegration test-dir nil (atom {:discord/token "test-token"}) (atom nil))]
       (with-redefs [rest/post-typing! #(reset! captured %)]
         (comm/on-turn-start integration "discord-C999" "hi")
         (should= {:channel-id "C999" :token "test-token"} @captured))))
 
   (it "routes an accepted message to the channel session"
     (let [captured    (atom nil)
-          integration (sut/->DiscordIntegration test-dir nil (atom {:token "test-token"}) (atom nil))]
+          integration (sut/->DiscordIntegration test-dir nil (atom {:discord/token "test-token"}) (atom nil))]
       (with-redefs [config/load-config (fn [& _] base-config)
                     bridge/dispatch!     (fn [state-dir request]
                                          (reset! captured {:state-dir    state-dir
@@ -88,9 +88,9 @@
 
   (it "uses the per-channel model-ref over the Discord-wide model-ref"
     (let [captured (atom nil)
-          cfg      {:comms     {:discord {:crew     "marvin"
-                                          :model    "bender"
-                                          :channels {"C999" {:model "chef-bender"}}}}
+          cfg      {:comms     {:discord {:crew              "marvin"
+                                          :model             "bender"
+                                          :discord/channels  {"C999" {:model "chef-bender"}}}}
                     :defaults  {:crew "main" :model "grover"}
                     :crew      {"main"   {:model "grover" :soul "You are Isaac."}
                                 "marvin" {:model "grover" :soul "Bite my shiny metal prompts."}}
@@ -109,7 +109,7 @@
 
   (it "adds channel label and guild name to the untrusted user prefix"
     (let [captured (atom nil)
-          cfg      {:comms     {:discord {:channels {"C999" {:name "kitchen"}}}}
+          cfg      {:comms     {:discord {:discord/channels {"C999" {:name "kitchen"}}}}
                     :crew      {"main" {:model "grover" :soul "You are Isaac."}}
                     :models    {"grover" {:model "echo" :provider "grover" :context-window 32768}}
                     :providers {"grover" {:api "grover"}}}]
@@ -211,10 +211,10 @@
     (let [captured   (atom nil)
           callbacks* (atom nil)]
       (with-redefs [config/load-config (fn [& _] (assoc-in base-config [:comms :discord]
-                                                            {:token      "test-token"
-                                                             :allow-from {:guilds ["G789"]
-                                                                          :users  ["123"]}
-                                                             :crew       "main"}))
+                                                            {:discord/token      "test-token"
+                                                             :discord/allow-from {:guilds ["G789"]
+                                                                                  :users  ["123"]}
+                                                             :crew               "main"}))
                     bridge/dispatch!     (fn [_state-dir request]
                                          (reset! captured {:input (:input request) :session-name (:session-key request)})
                                          {:stopReason "end_turn"})]
@@ -232,7 +232,7 @@
     (let [callbacks* (atom nil)]
       (log/capture-logs
         (let [{:keys [client]} (sut/connect! {:state-dir     test-dir
-                                              :cfg-overrides {:comms {:discord {:token "test-token"}}}
+                                              :cfg-overrides {:comms {:discord {:discord/token "test-token"}}}
                                               :clock-mode    :virtual
                                               :connect-ws!   (fake-connect! callbacks*)})
               error           (ex-info "boom" {:kind :kaboom})]
@@ -266,19 +266,19 @@
           callbacks* (atom nil)]
       (fs/mkdirs (str test-dir "/.isaac/config"))
       (fs/spit (str test-dir "/.isaac/config/isaac.edn")
-               (pr-str {:comms    {:discord {:token      "test-token"
-                                             :allow-from {:guilds ["G789"]
-                                                          :users  ["123"]}
-                                             :crew       "main"}}
+               (pr-str {:comms    {:discord {:discord/token      "test-token"
+                                             :discord/allow-from {:guilds ["G789"]
+                                                                  :users  ["123"]}
+                                             :crew               "main"}}
                         :sessions {:naming-strategy :sequential}}))
       (with-redefs [bridge/dispatch! (fn [_state-dir request]
                                      (reset! captured {:input (:input request) :session-name (:session-key request)})
                                      {:stopReason "end_turn"})]
         (let [{:keys [client]} (sut/connect! {:state-dir     test-dir
-                                              :cfg-overrides {:comms    {:discord {:token      "test-token"
-                                                                                   :allow-from {:guilds ["G789"]
-                                                                                                :users  ["123"]}
-                                                                                   :crew       "main"}}
+                                              :cfg-overrides {:comms    {:discord {:discord/token      "test-token"
+                                                                                   :discord/allow-from {:guilds ["G789"]
+                                                                                                        :users  ["123"]}
+                                                                                   :crew               "main"}}
                                                               :crew     {"main" {:model "grover" :soul "You are Isaac."}}
                                                               :models   {"grover" {:model "echo" :provider "grover" :context-window 32768}}
                                                               :sessions {:naming-strategy :sequential}}
@@ -291,7 +291,7 @@
           (should= "discord-C999" (:session-name @captured))))))
 
   (it "DiscordIntegration dispatches every Comm protocol method without AbstractMethodError"
-    (let [di (sut/->DiscordIntegration "/tmp" nil (atom {:token "t" :message-cap 1}) (atom nil))]
+    (let [di (sut/->DiscordIntegration "/tmp" nil (atom {:discord/token "t" :discord/message-cap 1}) (atom nil))]
       (with-redefs [rest/post-typing!         (fn [& _] nil)
                     rest/try-send-or-enqueue! (fn [& _] nil)]
         (with-out-str

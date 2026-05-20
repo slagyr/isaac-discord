@@ -1,21 +1,21 @@
 {:id      :isaac.comm.discord
  :version "0.1.0"
  :comm    {:discord {:factory isaac.comm.discord/make
-                     :schema  {:token       {:type        :string
-                                             :validations [[:present-when? :type :discord]]
-                                             :description "Discord bot token. Use ${ENV_VAR} for env substitution from the state-dir .env file."}
-                               :message-cap {:type        :int
-                                             :validations [[:nil-or? [:between 1 2000]]]
-                                             :description "Maximum reply length in characters before splitting. Discord's hard cap is 2000."}
-                               :allow-from  {:type        :map
-                                             :schema      {:users  {:type        :seq
-                                                                    :spec        {:type :string}
-                                                                    :description "Discord user IDs (snowflake strings) allowed to DM the bot."}
-                                                           :guilds {:type        :seq
-                                                                    :spec        {:type :string}
-                                                                    :description "Guild (server) IDs the bot accepts messages from."}}
-                                             :description "Inbound-message allowlist with two keys: :users and :guilds."}
-                               :channels    {:type        :map
+                     :schema  {:discord/token       {:type        :string
+                                                     :validations [[:present-when? :type :discord]]
+                                                     :description "Discord bot token. Use ${ENV_VAR} for env substitution from the state-dir .env file."}
+                               :discord/message-cap {:type        :int
+                                                     :validations [[:nil-or? [:between 1 2000]]]
+                                                     :description "Maximum reply length in characters before splitting. Discord's hard cap is 2000."}
+                               :discord/allow-from  {:type        :map
+                                                     :schema      {:users  {:type        :seq
+                                                                            :spec        {:type :string}
+                                                                            :description "Discord user IDs (snowflake strings) allowed to DM the bot."}
+                                                                   :guilds {:type        :seq
+                                                                            :spec        {:type :string}
+                                                                            :description "Guild (server) IDs the bot accepts messages from."}}
+                                                     :description "Inbound-message allowlist with two keys: :users and :guilds."}
+                               :discord/channels    {:type        :map
                                              :key-spec    {:type :string}
                                              :value-spec  {:type   :map
                                                            :schema {:crew    {:type        :string

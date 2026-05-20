@@ -15,8 +15,8 @@ Feature: Discord client lifecycle
   Scenario: Discord client starts on isaac server startup when config is present
     Given config:
       | key                            | value      |
-      | comms.discord.token            | test-token |
-      | comms.discord.allow-from.users | ["123"]    |
+      | comms.discord.discord/token            | test-token |
+      | comms.discord.discord/allow-from.users | ["123"]    |
       | comms.discord.crew             | main       |
     And the Isaac server is started
     Then the Discord client is connected
@@ -25,8 +25,8 @@ Feature: Discord client lifecycle
     Given the Isaac server is started
     When the isaac EDN file "config/isaac.edn" exists with:
       | path                            | value      |
-      | comms.discord.token             | test-token |
-      | comms.discord.allow-from.users  | ["123"]    |
+      | comms.discord.discord/token             | test-token |
+      | comms.discord.discord/allow-from.users  | ["123"]    |
       | comms.discord.crew              | main       |
     Then the log has entries matching:
       | level | event              | path           | impl    |
@@ -37,8 +37,8 @@ Feature: Discord client lifecycle
   Scenario: Discord client stops when its config is removed mid-run
     Given config:
       | key                            | value      |
-      | comms.discord.token            | test-token |
-      | comms.discord.allow-from.users | ["123"]    |
+      | comms.discord.discord/token            | test-token |
+      | comms.discord.discord/allow-from.users | ["123"]    |
       | comms.discord.crew             | main       |
     And the Isaac server is started
     And the Discord client is connected
@@ -55,15 +55,15 @@ Feature: Discord client lifecycle
   Scenario: allow-from updates take effect without restart
     Given config:
       | key                            | value      |
-      | comms.discord.token            | test-token |
-      | comms.discord.allow-from.users | ["123"]    |
+      | comms.discord.discord/token            | test-token |
+      | comms.discord.discord/allow-from.users | ["123"]    |
       | comms.discord.crew             | main       |
     And the Isaac server is started
     And the Discord client is ready as bot "bot-default"
     When the isaac EDN file "config/isaac.edn" exists with:
       | path                            | value         |
-      | comms.discord.token             | test-token    |
-      | comms.discord.allow-from.users  | ["123","456"] |
+      | comms.discord.discord/token             | test-token    |
+      | comms.discord.discord/allow-from.users  | ["123","456"] |
       | comms.discord.crew              | main          |
     Then the log has entries matching:
       | level | event            | path      |

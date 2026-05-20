@@ -40,8 +40,8 @@
 ;; --- Channel-based routing ---
 
 (defn- channel-config [discord-cfg channel-id]
-  (or (get-in discord-cfg [:channels (keyword (str channel-id))])
-      (get-in discord-cfg [:channels (str channel-id)])
+  (or (get-in discord-cfg [:discord/channels (keyword (str channel-id))])
+      (get-in discord-cfg [:discord/channels (str channel-id)])
       {}))
 
 (defn channel-session-name
@@ -68,7 +68,7 @@
   (or (some (fn [[channel-id channel-cfg]]
               (when (= session-name (:session channel-cfg))
                 (str channel-id)))
-            (get discord-cfg :channels {}))
+            (get discord-cfg :discord/channels {}))
       (when (str/starts-with? session-name "discord-")
         (subs session-name (count "discord-")))))
 
@@ -145,7 +145,7 @@
   (on-turn-start [_ session-key _]
     (let [cfg @cfg]
       (when-let [channel-id (session->channel-id cfg session-key)]
-        (rest/post-typing! {:channel-id channel-id :token (:token cfg)}))))
+        (rest/post-typing! {:channel-id channel-id :token (:discord/token cfg)}))))
   (on-text-chunk [_ _ _] nil)
   (on-tool-call [_ _ _] nil)
   (on-tool-cancel [_ _ _] nil)
@@ -161,15 +161,15 @@
         (when-let [channel-id (session->channel-id cfg session-key)]
           (rest/try-send-or-enqueue! {:channel-id  channel-id
                                       :content     content
-                                      :message-cap (:message-cap cfg)
+                                      :message-cap (:discord/message-cap cfg)
                                       :state-dir   state-dir
-                                      :token       (:token cfg)})))))
+                                      :token       (:discord/token cfg)})))))
   (send! [_ record]
     (let [dcfg     @cfg
           response (rest/post-message! {:channel-id  (:target record)
                                         :content     (:content record)
-                                        :message-cap (:message-cap dcfg)
-                                        :token       (:token dcfg)})]
+                                        :message-cap (:discord/message-cap dcfg)
+                                        :token       (:discord/token dcfg)})]
       (cond
         (< (:status response 0) 400)        {:ok true}
         (rest/transient-response? response)  {:ok false :transient? true}
@@ -177,7 +177,7 @@
   api/Reconfigurable
   (on-startup! [this slice]
     (reset! cfg slice)
-    (when-let [token (:token slice)]
+    (when-let [token (:discord/token slice)]
       (when state-dir
         (log/info :discord.client/started)
         (let [result (connect! (cond-> {:cfg-overrides {:comms {:discord slice}}
@@ -187,8 +187,8 @@
           (reset! conn {:client (:client result)})))))
   (on-config-change! [this old new]
     (when new (reset! cfg new))
-    (let [old-token (:token old)
-          new-token (:token new)]
+    (let [old-token (:discord/token old)
+          new-token (:discord/token new)]
       (cond
         (and (not old-token) new-token state-dir)
         (do
@@ -208,8 +208,8 @@
         (and old-token new-token)
         (when-let [current @conn]
           (gateway/update-allow-from! (:client current)
-                                      {:allow-from-users  (get-in new [:allow-from :users])
-                                       :allow-from-guilds (get-in new [:allow-from :guilds])}))))))
+                                      {:allow-from-users  (get-in new [:discord/allow-from :users])
+                                       :allow-from-guilds (get-in new [:discord/allow-from :guilds])}))))))
 
 (defn discord-cfg [integration]
   (when integration @(.-cfg integration)))
@@ -250,9 +250,9 @@
         di          (or comm-impl
                         (when routing?
                           (->DiscordIntegration state-dir connect-ws! (atom discord-cfg) (atom nil))))
-        client      (gateway/connect! (cond-> {:allow-from-guilds (get-in discord-cfg [:allow-from :guilds])
-                                               :allow-from-users  (get-in discord-cfg [:allow-from :users])
-                                               :token             (:token discord-cfg)}
+        client      (gateway/connect! (cond-> {:allow-from-guilds (get-in discord-cfg [:discord/allow-from :guilds])
+                                               :allow-from-users  (get-in discord-cfg [:discord/allow-from :users])
+                                               :token             (:discord/token discord-cfg)}
                                         (some? di)  (assoc :on-accepted-message! #(process-message! di state-dir %))
                                         clock-mode  (assoc :clock-mode clock-mode)
                                         connect-ws! (assoc :connect-ws! connect-ws!)

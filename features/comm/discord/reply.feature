@@ -9,9 +9,9 @@ Feature: Discord reply via REST API
     Given default Grover setup in "/test/discord-reply"
     And the Discord Gateway is faked in-memory
     And config:
-      | comms.discord.token             | test-token |
-      | comms.discord.allow-from.users  | 123        |
-      | comms.discord.allow-from.guilds | G789       |
+      | comms.discord.discord/token             | test-token |
+      | comms.discord.discord/allow-from.users  | 123        |
+      | comms.discord.discord/allow-from.guilds | G789       |
       | sessions.naming-strategy        | sequential |
     And the Discord client is ready as bot "bot-default"
 

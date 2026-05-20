@@ -7,7 +7,7 @@ Feature: Discord Gateway connection
   Background:
     Given the Discord Gateway is faked in-memory
     And config:
-      | comms.discord.token | test-token |
+      | comms.discord.discord/token | test-token |
 
   Scenario: client sends IDENTIFY after receiving HELLO
     When the Discord client connects

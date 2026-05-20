@@ -6,9 +6,9 @@ Feature: Discord message intake
   Background:
     Given the Discord Gateway is faked in-memory
     And config:
-      | comms.discord.token             | test-token |
-      | comms.discord.allow-from.users  | 123456     |
-      | comms.discord.allow-from.guilds | 789012     |
+      | comms.discord.discord/token             | test-token |
+      | comms.discord.discord/allow-from.users  | 123456     |
+      | comms.discord.discord/allow-from.guilds | 789012     |
     And the Discord client is ready as bot "bot-default"
 
   Scenario: accept MESSAGE_CREATE from an allowed user and guild
@@ -31,9 +31,9 @@ Feature: Discord message intake
 
   Scenario: ignore MESSAGE_CREATE from the bot itself even if on allow list
     Given config:
-      | comms.discord.token             | test-token |
-      | comms.discord.allow-from.users  | 555        |
-      | comms.discord.allow-from.guilds | 789012     |
+      | comms.discord.discord/token             | test-token |
+      | comms.discord.discord/allow-from.users  | 555        |
+      | comms.discord.discord/allow-from.guilds | 789012     |
     And the Discord client is ready as bot "555"
     When Discord sends MESSAGE_CREATE:
       | channel_id | 999001 |

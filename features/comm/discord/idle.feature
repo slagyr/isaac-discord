@@ -10,7 +10,7 @@ Feature: Discord Gateway idle handling
     Given the Discord Gateway is faked in-memory
     And config:
       | log.output          | memory     |
-      | comms.discord.token | test-token |
+      | comms.discord.discord/token | test-token |
 
   Scenario: idle gap between IDENTIFY and READY does not synthesize a close
     When the Discord client connects
