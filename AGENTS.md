@@ -31,8 +31,11 @@ This repo is the Discord comm module for [Isaac](https://github.com/slagyr/isaac
 It registers as an Isaac module via `src/isaac-manifest.edn` and provides a
 `:discord` comm channel that bridges Discord gateway events to Isaac sessions.
 
-**Isaac dependency:** `deps.edn` and `bb.edn` reference Isaac core via a git dep.
-Update the `:git/sha` when pulling in Isaac changes.
+**Isaac dependency:** `deps.edn` references Isaac core via a git dep, with a
+`:dev-local` alias for a local `../isaac` checkout. `bb.edn` auto-detects the
+sibling checkout and falls back to the pinned git sha (set `ISAAC_GIT=1` to
+force git even with the local checkout present). Bump the `:git/sha` in both
+files when CI / fresh clones need newer Isaac code.
 
 ## Testing
 
@@ -42,8 +45,8 @@ bb features   # Run Gherkin feature scenarios (excludes @slow and @wip)
 bb ci         # Run both
 ```
 
-Feature step definitions live in `spec/isaac/features/steps/discord.clj` and
-pull in the shared Isaac step namespaces via the git dep.
+Feature step definitions live in `spec/isaac/comm/discord/discord_steps.clj`
+and pull in the shared Isaac step namespaces via the git dep.
 
 ### Testing Discipline
 
