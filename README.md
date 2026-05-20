@@ -1,6 +1,6 @@
 # isaac-discord
 
-[![CI](https://github.com/slagyr/isaac-discord/actions/workflows/ci.yml/badge.svg)](https://github.com/slagyr/isaac-discord/actions/workflows/ci.yml)
+[![CI Tests](https://github.com/slagyr/isaac-discord/actions/workflows/ci.yml/badge.svg)](https://github.com/slagyr/isaac-discord/actions/workflows/ci.yml)
 
 A [Discord](https://discord.com) comm module for [Isaac](https://github.com/slagyr/isaac),
 the AI assistant framework. It bridges Discord gateway events to Isaac sessions,
