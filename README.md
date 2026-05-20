@@ -1,5 +1,7 @@
 # isaac-discord
 
+[![CI](https://github.com/slagyr/isaac-discord/actions/workflows/ci.yml/badge.svg)](https://github.com/slagyr/isaac-discord/actions/workflows/ci.yml)
+
 A [Discord](https://discord.com) comm module for [Isaac](https://github.com/slagyr/isaac),
 the AI assistant framework. It bridges Discord gateway events to Isaac sessions,
 allowing Isaac-powered agents to receive messages from and reply to Discord channels.
@@ -15,33 +17,31 @@ allowing Isaac-powered agents to receive messages from and reply to Discord chan
 
 ## Installation
 
-Add to your Isaac `deps.edn` as a git dependency:
+Declare the module in your Isaac config's `:modules` map so Isaac's loader
+discovers it, then configure a `:discord` comm slot:
 
 ```clojure
-io.github.slagyr/isaac-discord {:git/url "git@github.com:slagyr/isaac-discord.git"
-                                 :git/sha "<sha>"}
-```
+{:modules {:isaac.comm.discord {:git/url "https://github.com/slagyr/isaac-discord.git"
+                                :git/sha "<sha>"}}
 
-Isaac will discover the module automatically via `isaac-manifest.edn`.
-
-## Configuration
-
-In your Isaac config (`config/isaac.edn`):
-
-```clojure
-{:comms {:discord {:token      "your-bot-token"
-                   :crew       "main"
+ :comms {:discord {:token       "your-bot-token"
+                   :crew        "main"
                    :message-cap 2000
-                   :allow-from {:users    ["user-id-1"]
-                                :channels ["channel-id-1"]}}}}
+                   :allow-from  {:users  ["user-id-1"]
+                                 :guilds ["guild-id-1"]}
+                   :channels    {"channel-id-1" {:crew    "support"
+                                                 :model   "grover"
+                                                 :session "discord-support"
+                                                 :name    "#support"}}}}}
 ```
 
 | Key           | Type   | Description |
 |---------------|--------|-------------|
 | `:token`      | string | Discord bot token |
 | `:crew`       | string | Isaac crew to route messages to |
-| `:message-cap`| int    | Max characters per Discord message (default 2000) |
-| `:allow-from` | map    | Optional allow-list of `:users` and/or `:channels` |
+| `:message-cap`| int    | Max characters per reply before splitting (Discord's hard cap is 2000) |
+| `:allow-from` | map    | Inbound allow-list: `:users` (snowflake strings) and/or `:guilds` (server IDs) |
+| `:channels`   | map    | Optional per-channel overrides keyed by channel ID — each value can set `:crew`, `:model`, `:session`, `:name` |
 
 ## Development
 
@@ -51,8 +51,11 @@ bb features   # Run Gherkin feature scenarios
 bb ci         # Run both
 ```
 
-Depends on [Isaac core](https://github.com/slagyr/isaac) via git dep.
-Update `:git/sha` in `deps.edn` and `bb.edn` when pulling in Isaac changes.
+Depends on [Isaac core](https://github.com/slagyr/isaac). `bb.edn` auto-detects
+a sibling `../isaac` checkout when present, so local cross-repo edits don't
+need a sha bump; set `ISAAC_GIT=1` to force the pinned git sha even with the
+sibling present. Bump `:git/sha` in `deps.edn` and `bb.edn` when CI / fresh
+clones need newer Isaac code.
 
 ## License
 
