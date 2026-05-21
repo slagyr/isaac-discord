@@ -2,6 +2,8 @@
   (:require
     [cheshire.core :as json]
     [isaac.logger :as log]
+    [isaac.scheduler :as scheduler]
+    [isaac.system :as system]
     [isaac.util.ws-client :as ws]))
 
 (def gateway-url "wss://gateway.discord.gg/?v=10&encoding=json")
@@ -81,13 +83,11 @@
     :virtual
     (swap! (:state client) assoc :next-heartbeat-at (+ (:virtual-now-ms @(:state client)) interval-ms))
 
-    (let [runner (future
-                   (loop []
-                     (Thread/sleep interval-ms)
-                     (when (:running? @(:state client))
-                       (send-heartbeat! client)
-                       (recur))))]
-      (swap! (:state client) assoc :heartbeat-runner runner))))
+    (when-let [sch (or (:scheduler client) (system/get :scheduler))]
+      (let [id (scheduler/every! sch interval-ms
+                                 (fn [_] (when (:running? @(:state client))
+                                           (send-heartbeat! client))))]
+        (swap! (:state client) assoc :heartbeat-task-id id :heartbeat-scheduler sch)))))
 
 (defn- handle-hello! [client data]
   (let [interval-ms (:heartbeat_interval data)]
@@ -248,7 +248,7 @@
                   (recur))))))))))
 
 (defn connect!
-  [{:keys [token url connect-ws! clock-mode allow-from-users allow-from-guilds on-accepted-message!]
+  [{:keys [token url connect-ws! clock-mode scheduler allow-from-users allow-from-guilds on-accepted-message!]
     :or   {url gateway-url connect-ws! default-connect-ws! clock-mode :real}}]
   (let [state      (atom {:status          :disconnected
                           :accepted        []
@@ -266,6 +266,7 @@
                     :url                  url
                     :state                state
                     :clock-mode           clock-mode
+                    :scheduler            scheduler
                     :allow-from-users     (atom (normalize-id-set allow-from-users))
                     :allow-from-guilds    (atom (normalize-id-set allow-from-guilds))
                     :on-accepted-message! on-accepted-message!
@@ -305,8 +306,9 @@
 
 (defn stop! [client]
   (swap! (:state client) assoc :running? false :status :disconnected)
-  (when-let [runner (:heartbeat-runner @(:state client))]
-    (future-cancel runner))
+  (when-let [task-id (:heartbeat-task-id @(:state client))]
+    (when-let [sch (:heartbeat-scheduler @(:state client))]
+      (scheduler/cancel! sch task-id)))
   (when-let [transport (:transport @(:state client))]
     (transport-close! transport))
   nil)
