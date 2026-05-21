@@ -249,7 +249,7 @@
                        trusted (assoc :soul-prepend trusted))))))
 
 (defn connect!
-  [{:keys [cfg-overrides clock-mode comm-impl connect-ws! route-messages? state-dir url]}]
+  [{:keys [cfg-overrides comm-impl connect-ws! route-messages? scheduler state-dir url]}]
   (let [cfg         (effective-config state-dir cfg-overrides)
         discord-cfg (discord-config cfg)
         routing?    (if (some? route-messages?) route-messages? (routing-configured? cfg))
@@ -260,7 +260,7 @@
                                                :allow-from-users  (get-in discord-cfg [:discord/allow-from :users])
                                                :token             (:discord/token discord-cfg)}
                                         (some? di)  (assoc :on-accepted-message! #(process-message! di state-dir %))
-                                        clock-mode  (assoc :clock-mode clock-mode)
+                                        scheduler   (assoc :scheduler scheduler)
                                         connect-ws! (assoc :connect-ws! connect-ws!)
                                         url         (assoc :url url)))
         _           (when (and di (nil? comm-impl))

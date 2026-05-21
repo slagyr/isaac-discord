@@ -2,6 +2,7 @@
   (:require
     [cheshire.core :as json]
     [isaac.comm.discord.gateway :as sut]
+    [isaac.comm.discord.test-clock :as test-clock]
     [isaac.logger :as log]
     [isaac.util.ws-client :as ws]
     [speclj.core :refer :all]))
@@ -22,7 +23,6 @@
     (let [sent       (atom [])
           callbacks* (atom nil)
           client     (sut/connect! {:token       "test-token"
-                                    :clock-mode  :virtual
                                     :connect-ws! (fake-connect! sent callbacks*)})]
       ((:on-message @callbacks*) (json/generate-string {:op 10 :d {:heartbeat_interval 45000}}))
       (should= 2 (:op (first @sent)))
@@ -32,11 +32,12 @@
   (it "sends HEARTBEAT when virtual time advances past the interval"
     (let [sent       (atom [])
           callbacks* (atom nil)
+          clock      (test-clock/make)
           client     (sut/connect! {:token       "test-token"
-                                    :clock-mode  :virtual
+                                    :scheduler   (:scheduler clock)
                                     :connect-ws! (fake-connect! sent callbacks*)})]
       ((:on-message @callbacks*) (json/generate-string {:op 10 :d {:heartbeat_interval 45000}}))
-      (sut/advance-time! client 45000)
+      (test-clock/advance! clock 45000)
       (should= 1 (:op (second @sent)))
       (should= nil (get-in (second @sent) [:d]))))
 
@@ -44,7 +45,6 @@
     (let [sent       (atom [])
           callbacks* (atom nil)
           client     (sut/connect! {:token       "test-token"
-                                    :clock-mode  :virtual
                                     :connect-ws! (fake-connect! sent callbacks*)})]
       ((:on-message @callbacks*) (json/generate-string {:op 10 :d {:heartbeat_interval 45000}}))
       ((:on-message @callbacks*) (json/generate-string {:op 0 :t "READY" :s 42 :d {:session_id "abc"}}))
@@ -54,12 +54,13 @@
   (it "heartbeats with the latest sequence after dispatch events"
     (let [sent       (atom [])
           callbacks* (atom nil)
+          clock      (test-clock/make)
           client     (sut/connect! {:token       "test-token"
-                                    :clock-mode  :virtual
+                                    :scheduler   (:scheduler clock)
                                     :connect-ws! (fake-connect! sent callbacks*)})]
       ((:on-message @callbacks*) (json/generate-string {:op 10 :d {:heartbeat_interval 45000}}))
       ((:on-message @callbacks*) (json/generate-string {:op 0 :t "READY" :s 7 :d {:session_id "abc"}}))
-      (sut/advance-time! client 45000)
+      (test-clock/advance! clock 45000)
       (should= 1 (:op (nth @sent 1)))
       (should= 7 (get-in (nth @sent 1) [:d]))))
 
@@ -67,7 +68,6 @@
     (let [sent       (atom [])
           callbacks* (atom nil)
           _client    (sut/connect! {:token       "test-token"
-                                    :clock-mode  :virtual
                                     :connect-ws! (fake-connect! sent callbacks*)})]
       ((:on-message @callbacks*) "not-json")
       (should= :discord.gateway/invalid-frame (:event (last (log/get-entries))))))
@@ -80,7 +80,6 @@
                        {:close! (fn [] nil)
                         :send!  (fn [payload] (swap! sent* conj payload))})
           client     (sut/connect! {:token       "test-token"
-                                    :clock-mode  :virtual
                                     :connect-ws! connect!})]
       ((:on-close (first @callbacks*)) {:status 1000 :reason "bye"})
       (should (sut/running? client))
@@ -96,7 +95,6 @@
                        {:close! (fn [] nil)
                         :send!  (fn [payload] (swap! sent* conj payload))})
           client     (sut/connect! {:token       "test-token"
-                                    :clock-mode  :virtual
                                     :connect-ws! connect!})]
       ((:on-message (first @callbacks*)) (json/generate-string {:op 10 :d {:heartbeat_interval 45000}}))
       ((:on-message (first @callbacks*)) (json/generate-string {:op 0 :t "READY" :s 7 :d {:session_id "abc" :user {:id "bot-default"}}}))
@@ -115,7 +113,6 @@
                        {:close! (fn [] nil)
                         :send!  (fn [payload] (swap! sent* conj payload))})
           client     (sut/connect! {:token       "test-token"
-                                    :clock-mode  :virtual
                                     :connect-ws! connect!})]
       ((:on-message (first @callbacks*)) (json/generate-string {:op 10 :d {:heartbeat_interval 45000}}))
       ((:on-message (first @callbacks*)) (json/generate-string {:op 0 :t "READY" :s 7 :d {:session_id "abc" :user {:id "bot-default"}}}))
@@ -132,7 +129,6 @@
                        {:close! (fn [] nil)
                         :send!  (fn [payload] (swap! sent* conj payload))})
           _client    (sut/connect! {:token       "test-token"
-                                    :clock-mode  :virtual
                                     :connect-ws! connect!})]
       ((:on-close (first @callbacks*)) {:status 4004 :reason "bad token"})
       (should= 1 (count @callbacks*))
@@ -146,7 +142,6 @@
                        {:close! (fn [] nil)
                         :send!  (fn [payload] (swap! sent* conj payload))})
           client     (sut/connect! {:token       "test-token"
-                                    :clock-mode  :virtual
                                     :connect-ws! connect!})]
       ((:on-message (first @callbacks*)) (json/generate-string {:op 10 :d {:heartbeat_interval 45000}}))
       ((:on-message (first @callbacks*)) (json/generate-string {:op 0 :t "READY" :s 1 :d {:session_id "sess" :user {:id "bot"}}}))
@@ -160,7 +155,6 @@
                        (swap! callbacks* conj callbacks)
                        {:close! (fn [] nil) :send! (fn [_] nil)})
           _client    (sut/connect! {:token       "test-token"
-                                    :clock-mode  :virtual
                                     :connect-ws! connect!})]
       ((:on-close (first @callbacks*)) {:status-code 4004 :reason "bad token"})
       (should= 1 (count @callbacks*))
@@ -175,7 +169,6 @@
           error      (ex-info "connection reset" {:socket :discord})]
       (log/capture-logs
         (sut/connect! {:token       "test-token"
-                       :clock-mode  :virtual
                        :connect-ws! connect!})
         ((:on-error @callbacks*) error)
         (should= [{:level         :error
@@ -195,7 +188,6 @@
                       :send!  (fn [_] nil)}
           connect!   (fn [_url _callbacks] transport)
           client     (sut/connect! {:token       "test-token"
-                                    :clock-mode  :virtual
                                     :connect-ws! connect!})]
       (with-redefs [sut/transport-receive! (fn [_]
                                              (let [message (first @messages*)]
@@ -233,7 +225,6 @@
       (let [sent       (atom [])
             callbacks* (atom nil)
             client     (sut/connect! {:token            "test-token"
-                                      :clock-mode       :virtual
                                       :allow-from-users ["123456"]
                                       :allow-from-guilds ["789012"]
                                       :connect-ws!      (fake-connect! sent callbacks*)})]
@@ -246,7 +237,6 @@
       (let [sent       (atom [])
             callbacks* (atom nil)
             client     (sut/connect! {:token             "test-token"
-                                      :clock-mode        :virtual
                                       :allow-from-guilds ["789012"]
                                       :connect-ws!       (fake-connect! sent callbacks*)})]
         ((:on-message @callbacks*) (json/generate-string {:op 10 :d {:heartbeat_interval 45000}}))
@@ -258,7 +248,6 @@
       (let [sent       (atom [])
             callbacks* (atom nil)
             client     (sut/connect! {:token            "test-token"
-                                      :clock-mode       :virtual
                                       :allow-from-users ["274692"]
                                       :connect-ws!      (fake-connect! sent callbacks*)})]
         ((:on-message @callbacks*) (json/generate-string {:op 10 :d {:heartbeat_interval 45000}}))
@@ -270,7 +259,6 @@
       (let [sent       (atom [])
             callbacks* (atom nil)
             client     (sut/connect! {:token            "test-token"
-                                      :clock-mode       :virtual
                                       :allow-from-users ["123456"]
                                       :allow-from-guilds ["789012"]
                                       :connect-ws!      (fake-connect! sent callbacks*)})]
@@ -283,7 +271,6 @@
       (let [sent       (atom [])
             callbacks* (atom nil)
             client     (sut/connect! {:token            "test-token"
-                                      :clock-mode       :virtual
                                       :allow-from-users ["555"]
                                       :allow-from-guilds ["789012"]
                                       :connect-ws!      (fake-connect! sent callbacks*)})]
@@ -296,7 +283,6 @@
       (let [sent       (atom [])
             callbacks* (atom nil)
             _client    (sut/connect! {:token             "test-token"
-                                      :clock-mode        :virtual
                                       :allow-from-guilds ["789012"]
                                       :connect-ws!       (fake-connect! sent callbacks*)})]
         ((:on-message @callbacks*) (json/generate-string {:op 10 :d {:heartbeat_interval 45000}}))
@@ -310,7 +296,6 @@
       (let [sent       (atom [])
             callbacks* (atom nil)
             _client    (sut/connect! {:token            "test-token"
-                                      :clock-mode       :virtual
                                       :allow-from-users ["274692"]
                                       :connect-ws!      (fake-connect! sent callbacks*)})]
         ((:on-message @callbacks*) (json/generate-string {:op 10 :d {:heartbeat_interval 45000}}))
@@ -324,7 +309,6 @@
       (let [sent       (atom [])
             callbacks* (atom nil)
             _client    (sut/connect! {:token             "test-token"
-                                      :clock-mode        :virtual
                                       :allow-from-guilds ["789012"]
                                       :allow-from-users  ["555"]
                                       :connect-ws!       (fake-connect! sent callbacks*)})]
@@ -339,7 +323,6 @@
       (let [sent       (atom [])
             callbacks* (atom nil)
             client     (sut/connect! {:token             "test-token"
-                                      :clock-mode        :virtual
                                       :allow-from-users  ["123"]
                                       :connect-ws!       (fake-connect! sent callbacks*)})]
         ((:on-message @callbacks*) (json/generate-string {:op 10 :d {:heartbeat_interval 45000}}))

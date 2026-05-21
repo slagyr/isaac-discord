@@ -219,7 +219,6 @@
                                          (reset! captured {:input (:input request) :session-name (:session-key request)})
                                          {:stopReason "end_turn"})]
         (let [{:keys [client]} (sut/connect! {:state-dir   test-dir
-                                              :clock-mode  :virtual
                                               :connect-ws! (fake-connect! callbacks*)})]
           ((:on-message @callbacks*) (json/generate-string {:op 10 :d {:heartbeat_interval 45000}}))
           ((:on-message @callbacks*) (json/generate-string {:op 0 :t "READY" :s 1 :d {:session_id "abc" :user {:id "bot-default"}}}))
@@ -233,7 +232,6 @@
       (log/capture-logs
         (let [{:keys [client]} (sut/connect! {:state-dir     test-dir
                                               :cfg-overrides {:comms {:discord {:discord/token "test-token"}}}
-                                              :clock-mode    :virtual
                                               :connect-ws!   (fake-connect! callbacks*)})
               error           (ex-info "boom" {:kind :kaboom})]
           ((:on-error @callbacks*) error)
@@ -254,7 +252,6 @@
     (let [callbacks* (atom nil)]
       (let [{:keys [client]} (sut/connect! {:state-dir     test-dir
                                             :cfg-overrides {:comms {:discord {:token "test-token"}}}
-                                            :clock-mode    :virtual
                                             :connect-ws!   (fake-connect! callbacks*)})]
         ((:on-close @callbacks*) {:status-code 4004 :reason "auth failed"})
         (should= :disconnected (:status @(:state client)))
@@ -282,7 +279,6 @@
                                                               :crew     {"main" {:model "grover" :soul "You are Isaac."}}
                                                               :models   {"grover" {:model "echo" :provider "grover" :context-window 32768}}
                                                               :sessions {:naming-strategy :sequential}}
-                                              :clock-mode    :virtual
                                               :connect-ws!   (fake-connect! callbacks*)})]
           ((:on-message @callbacks*) (json/generate-string {:op 10 :d {:heartbeat_interval 45000}}))
           ((:on-message @callbacks*) (json/generate-string {:op 0 :t "READY" :s 1 :d {:session_id "abc" :user {:id "bot-default"}}}))

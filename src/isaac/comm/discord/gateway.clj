@@ -79,15 +79,11 @@
     (log/debug :discord.gateway/heartbeat :sequence (:d payload))))
 
 (defn- schedule-heartbeats! [client interval-ms]
-  (case (:clock-mode client)
-    :virtual
-    (swap! (:state client) assoc :next-heartbeat-at (+ (:virtual-now-ms @(:state client)) interval-ms))
-
-    (when-let [sch (or (:scheduler client) (system/get :scheduler))]
-      (let [id (scheduler/every! sch interval-ms
-                                 (fn [_] (when (:running? @(:state client))
-                                           (send-heartbeat! client))))]
-        (swap! (:state client) assoc :heartbeat-task-id id :heartbeat-scheduler sch)))))
+  (when-let [sch (or (:scheduler client) (system/get :scheduler))]
+    (let [id (scheduler/every! sch interval-ms
+                               (fn [_] (when (:running? @(:state client))
+                                         (send-heartbeat! client))))]
+      (swap! (:state client) assoc :heartbeat-task-id id :heartbeat-scheduler sch))))
 
 (defn- handle-hello! [client data]
   (let [interval-ms (:heartbeat_interval data)]
@@ -248,16 +244,15 @@
                   (recur))))))))))
 
 (defn connect!
-  [{:keys [token url connect-ws! clock-mode scheduler allow-from-users allow-from-guilds on-accepted-message!]
-    :or   {url gateway-url connect-ws! default-connect-ws! clock-mode :real}}]
-  (let [state      (atom {:status          :disconnected
-                          :accepted        []
-                          :running?        true
-                          :sequence        nil
-                          :bot-id          nil
-                          :session-id      nil
-                          :virtual-now-ms  0
-                          :transport       nil})
+  [{:keys [token url connect-ws! scheduler allow-from-users allow-from-guilds on-accepted-message!]
+    :or   {url gateway-url connect-ws! default-connect-ws!}}]
+  (let [state      (atom {:status     :disconnected
+                          :accepted   []
+                          :running?   true
+                          :sequence   nil
+                          :bot-id     nil
+                          :session-id nil
+                          :transport  nil})
         client*    (atom nil)
         handlers   {:on-message #(receive-text! @client* %)
                     :on-close   #(on-close! @client* %)
@@ -265,7 +260,6 @@
         client     {:token                token
                     :url                  url
                     :state                state
-                    :clock-mode           clock-mode
                     :scheduler            scheduler
                     :allow-from-users     (atom (normalize-id-set allow-from-users))
                     :allow-from-guilds    (atom (normalize-id-set allow-from-guilds))
@@ -282,15 +276,6 @@
 (defn update-allow-from! [client {:keys [allow-from-users allow-from-guilds]}]
   (reset! (:allow-from-users client) (normalize-id-set allow-from-users))
   (reset! (:allow-from-guilds client) (normalize-id-set allow-from-guilds)))
-
-(defn advance-time! [client ms]
-  (swap! (:state client) update :virtual-now-ms + ms)
-  (loop []
-    (let [{:keys [heartbeat-interval-ms next-heartbeat-at virtual-now-ms running?]} @(:state client)]
-      (when (and running? heartbeat-interval-ms next-heartbeat-at (<= next-heartbeat-at virtual-now-ms))
-        (send-heartbeat! client)
-        (swap! (:state client) update :next-heartbeat-at + heartbeat-interval-ms)
-        (recur)))))
 
 (defn connected? [client]
   (= :ready (:status @(:state client))))

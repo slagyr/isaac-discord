@@ -7,6 +7,7 @@
     [gherclj.core :as g :refer [defgiven defwhen defthen helper!]]
     [isaac.comm.discord :as discord]
     [isaac.comm.discord.gateway :as gateway]
+    [isaac.comm.discord.test-clock :as test-clock]
     [isaac.comm.registry :as comm-registry]
     [isaac.config.loader :as config]
     [isaac.fs :as fs]
@@ -202,13 +203,15 @@
   (g/assoc! :discord-config (into {} (map (fn [[k v]] [k (parse-value v)]) (table-map table)))))
 
 (defn discord-connects []
-  (let [cfg (current-discord-config)]
+  (let [cfg   (current-discord-config)
+        clock (test-clock/make)]
+    (g/assoc! :discord-clock clock)
     (if (state-dir)
       (do
         (g/assoc! :runtime-state-dir (state-dir))
         (let [result (with-feature-fs
                      #(discord/connect! {:cfg-overrides   (discord-cfg-overrides)
-                                         :clock-mode      :virtual
+                                         :scheduler       (:scheduler clock)
                                          :route-messages? (routing-enabled?)
                                          :state-dir       (state-dir)
                                          :connect-ws!     (fake-connect!)}))]
@@ -218,7 +221,7 @@
       (let [client (gateway/connect! {:token             (config-value cfg "discord/token")
                                       :allow-from-users  (config-value cfg "discord/allow-from.users")
                                       :allow-from-guilds (config-value cfg "discord/allow-from.guilds")
-                                      :clock-mode        :virtual
+                                      :scheduler         (:scheduler clock)
                                       :connect-ws!       (fake-connect!)})]
         (g/assoc! :discord-client client)))))
 
@@ -271,10 +274,10 @@
 
 
 (defn test-clock-advances [n]
-  (gateway/advance-time! (g/get :discord-client) n))
+  (test-clock/advance! (g/get :discord-clock) n))
 
 (defn discord-stays-silent-for [n]
-  (gateway/advance-time! (g/get :discord-client) n))
+  (test-clock/advance! (g/get :discord-clock) n))
 
 (defn discord-closes-connection [n]
   ((:on-close @(g/get :discord-callbacks)) {:status n :reason "test-close"}))
@@ -340,8 +343,9 @@
 
 (defwhen "the Discord client connects" isaac.comm.discord.discord-steps/discord-connects
   "Connects via discord/connect! when state-dir is set (routing enabled),
-   else via the lower-level gateway/connect! (no routing). Uses virtual
-   clock mode — advance time with 'the test clock advances N ms'.")
+   else via the lower-level gateway/connect! (no routing). Injects a
+   virtual-clock scheduler (see isaac.comm.discord.test-clock) — advance
+   time with 'the test clock advances N ms'.")
 
 (defwhen "Discord sends HELLO:" isaac.comm.discord.discord-steps/discord-sends-hello
   "Synthesizes an inbound HELLO gateway payload (op 10) via the on-message
@@ -364,9 +368,9 @@
    directly. Captures :llm-request from grover.")
 
 (defwhen "the test clock advances {n:int} milliseconds" isaac.comm.discord.discord-steps/test-clock-advances
-  "Advances the virtual clock on the discord client. Only works when
-   the client was connected in :clock-mode :virtual (the default for
-   the discord test steps).")
+  "Advances the virtual-clock scheduler attached to the discord client
+   (stashed in g as :discord-clock by discord-connects), then runs a
+   single scheduler tick to fire any due heartbeats.")
 
 (defwhen "Discord stays silent for {n:int} milliseconds" isaac.comm.discord.discord-steps/discord-stays-silent-for)
 
