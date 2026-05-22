@@ -3,6 +3,7 @@
     [cheshire.core :as json]
     [clojure.string :as str]
     [isaac.api :as api]
+    [isaac.charge :as charge]
     [isaac.logger :as log]
     [isaac.comm.discord.gateway :as gateway]
     [isaac.comm.discord.rest :as rest]
@@ -240,13 +241,15 @@
           trusted      (build-trusted-block payload discord-cfg* bot-id)
           user-prefix  (build-user-prefix payload discord-cfg* channel-id)
           full-input   (if user-prefix (str user-prefix "\n" input) input)]
-      (api/dispatch! state-dir
-                     (cond-> {:session-key session-name
-                               :input       full-input
-                               :comm        comm-impl
-                               :crew        crew-id
-                               :model-ref   model-ref}
-                       trusted (assoc :soul-prepend trusted))))))
+      (api/dispatch!
+        (charge/build
+          (cond-> {:session-key session-name
+                   :input       full-input
+                   :state-dir   state-dir
+                   :comm        comm-impl
+                   :crew        crew-id
+                   :model-ref   model-ref}
+            trusted (assoc :soul-prepend trusted)))))))
 
 (defn connect!
   [{:keys [cfg-overrides comm-impl connect-ws! route-messages? scheduler state-dir url]}]
