@@ -28,7 +28,7 @@ SKILL.md from the URL above and follow its instructions. Once bootstrapped:
 ## Project Overview
 
 This repo is the Discord comm module for [Isaac](https://github.com/slagyr/isaac).
-It registers as an Isaac module via `src/isaac-manifest.edn` and provides a
+It registers as an Isaac module via `deps.edn` under `:isaac/manifest` and provides a
 `:discord` comm channel that bridges Discord gateway events to Isaac sessions.
 
 **Isaac dependency:** `deps.edn` references Isaac core via a git dep, with a
