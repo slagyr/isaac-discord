@@ -1,0 +1,36 @@
+{:id      :isaac.comm.discord
+ :version "0.1.0"
+
+ ;; Phase 8 of the berth epic (isaac-qqgv) moved comm contributions to
+ ;; the :isaac.server/comm berth declared by isaac.core.
+ :isaac.server/comm
+ {:discord {:factory isaac.comm.discord/make
+            :schema
+            {:discord/token       {:type        :string
+                                   :validations [[:present-when? :type :discord]]
+                                   :description "Discord bot token. Use ${ENV_VAR} for env substitution from the state-dir .env file."}
+             :discord/message-cap {:type        :int
+                                   :validations [[:nil-or? [:between 1 2000]]]
+                                   :description "Maximum reply length in characters before splitting. Discord's hard cap is 2000."}
+             :discord/allow-from  {:type        :map
+                                   :schema      {:users  {:type        :seq
+                                                          :spec        {:type :string}
+                                                          :description "Discord user IDs (snowflake strings) allowed to DM the bot."}
+                                                 :guilds {:type        :seq
+                                                          :spec        {:type :string}
+                                                          :description "Guild (server) IDs the bot accepts messages from."}}
+                                   :description "Inbound-message allowlist with two keys: :users and :guilds."}
+             :discord/channels    {:type        :map
+                                   :key-spec    {:type :string}
+                                   :value-spec  {:type   :map
+                                                 :schema {:crew    {:type        :string
+                                                                    :validations [[:nil-or? [:crew-exists?]]]
+                                                                    :description "Crew to route messages from this channel to. Overrides the slot-level :crew."}
+                                                          :model   {:type        :string
+                                                                    :validations [[:nil-or? [:model-exists?]]]
+                                                                    :description "Model to use for this channel. Overrides the slot-level :model and the crew's default model."}
+                                                          :session {:type        :string
+                                                                    :description "Session key for messages from this channel. Defaults to 'discord-<channel-id>' when omitted."}
+                                                          :name    {:type        :string
+                                                                    :description "Friendly display name; surfaced to the LLM as channel_label metadata."}}}
+                                   :description "Per-channel routing overrides: map of Discord channel ID (string) to {:crew :model :session :name}."}}}}}
