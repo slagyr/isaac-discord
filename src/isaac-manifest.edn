@@ -1,5 +1,6 @@
 {:id      :isaac.comm.discord
  :version "0.1.0"
+ :factory isaac.module/module
 
  ;; Phase 8 of the berth epic (isaac-qqgv) moved comm contributions to
  ;; the :isaac.server/comm berth declared by isaac.core.
