@@ -8,7 +8,7 @@
    assertions immediately after see a quiescent state, just like the
    old hand-rolled `gateway/advance-time!` did."
   (:require
-    [isaac.scheduler :as scheduler])
+    [isaac.scheduler.runtime :as scheduler])
   (:import
     (java.time Instant)
     (java.util.concurrent ExecutorService)))

@@ -17,14 +17,22 @@
                      '{io.github.slagyr/isaac      {:local/root "../isaac"}
                        io.github.slagyr/isaac-spec {:local/root "../isaac/spec"}}
                      '{io.github.slagyr/isaac      {:git/url "https://github.com/slagyr/isaac.git"
-                                                    :git/sha "6d22b61a154a1e029ac457a8297df6756d0ede9b"}
+                                                    :git/sha "939aa4681e2d0c411672a80c7a0cc486b007b1fe"}
                        io.github.slagyr/isaac-spec {:git/url   "https://github.com/slagyr/isaac.git"
-                                                    :git/sha   "6d22b61a154a1e029ac457a8297df6756d0ede9b"
+                                                    :git/sha   "939aa4681e2d0c411672a80c7a0cc486b007b1fe"
                                                     :deps/root "spec"}})}))
 
-  spec     {:doc      "Run discord specs"
+  spec     {:doc      "Run discord specs (comm unit specs under bb; server app spec needs JVM — see :spec-jvm)"
             :requires ([speclj.main :as speclj])
-            :task     (apply speclj/-main "-c" "-D" "spec" *command-line-args*)}
+            :task     (apply speclj/-main "-c"
+                             "spec/isaac/comm/discord_spec.clj"
+                             "spec/isaac/comm/discord/gateway_spec.clj"
+                             "spec/isaac/comm/discord/rest_spec.clj"
+                             *command-line-args*)}
+
+  spec-jvm {:doc  "Run server app spec on the JVM (isaac.server.app pulls deps bb SCI cannot analyze)"
+            :task (shell "clojure" "-M:test" "-m" "speclj.main" "-c"
+                         "spec/isaac/server/discord_app_spec.clj")}
 
   features {:doc      "Run discord features (excludes @slow and @wip)"
             :requires ([gherclj.main :as main])

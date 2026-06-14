@@ -2,18 +2,20 @@
   (:require
     [cheshire.core :as json]
     [isaac.api :as api]
-    [isaac.bridge.core :as bridge]
     [isaac.charge :as charge]
-    [isaac.comm :as comm]
     [isaac.comm.discord :as sut]
     [isaac.comm.discord.rest :as rest]
-    [isaac.config.loader :as config]
+    [isaac.comm.protocol :as comm]
+    [isaac.config.api :as config]
     [isaac.fs :as fs]
     [isaac.logger :as log]
-    [isaac.spec-helper :as storage]
+    [isaac.session.spec-helper :as storage]
     [speclj.core :refer :all]))
 
 (def test-dir "/test/discord")
+
+(defn- stub-config-result [cfg]
+  (fn [& _] {:config cfg :errors [] :warnings [] :missing-config? false :sources []}))
 
 (def base-config
   {:comms     {:discord {:crew "main"}}
@@ -32,8 +34,9 @@
 (describe "Discord comm"
 
   (around [it]
-    (binding [fs/*fs* (fs/mem-fs)]
-      (it)))
+    (storage/with-memory-store
+      (binding [fs/*fs* (fs/mem-fs)]
+        (it))))
 
   (it "posts the completed turn back to the originating Discord channel"
     (let [captured    (atom nil)
@@ -52,17 +55,15 @@
   (it "routes an accepted message to the channel session"
     (let [captured    (atom nil)
           integration (sut/->DiscordIntegration test-dir nil (atom {:discord/token "test-token"}) (atom nil))]
-      (with-redefs [config/load-config (fn [& _] base-config)
-                    bridge/dispatch!     (fn [request]
-                                         (reset! captured {:state-dir    (:state-dir request)
-                                                           :session-name (:session-key request)
+      (with-redefs [config/load-config-result (stub-config-result base-config)
+                    api/dispatch!     (fn [request]
+                                         (reset! captured {:session-name (:session-key request)
                                                            :input        (:input request)
                                                            :opts         request})
                                          {:stopReason "end_turn"})]
         (sut/process-message! integration test-dir {:channel_id "C999"
                                                     :author     {:id "123"}
                                                     :content    "hello"}))
-      (should= test-dir (:state-dir @captured))
       (should= "discord-C999" (:session-name @captured))
       (should= "hello" (:input @captured))
       (should (satisfies? comm/Comm (:comm (:opts @captured))))))
@@ -77,11 +78,11 @@
                     :models    {"grover" {:model "echo" :provider "grover" :context-window 32768}
                                 "bender" {:model "echo-bender" :provider "grover" :context-window 32768}}
                     :providers {"grover" {:api "grover"}}}]
-      (with-redefs [config/load-config (fn [& _] cfg)
+      (with-redefs [config/load-config-result (stub-config-result cfg)
                     charge/build         (fn [input]
                                            (reset! captured {:input (:input input) :opts input})
                                            {:charge/type :charge})
-                    bridge/dispatch!     (fn [_] {:stopReason "end_turn"})]
+                    api/dispatch!     (fn [_] {:stopReason "end_turn"})]
         (sut/process-message! test-dir {:channel_id "C999"
                                         :author     {:id "123"}
                                         :content    "hello"}))
@@ -100,11 +101,11 @@
                                 "bender"      {:model "echo-bender" :provider "grover" :context-window 32768}
                                 "chef-bender" {:model "echo-chef" :provider "grover" :context-window 32768}}
                     :providers {"grover" {:api "grover"}}}]
-      (with-redefs [config/load-config (fn [& _] cfg)
+      (with-redefs [config/load-config-result (stub-config-result cfg)
                     charge/build         (fn [input]
                                            (reset! captured {:input (:input input) :opts input})
                                            {:charge/type :charge})
-                    bridge/dispatch!     (fn [_] {:stopReason "end_turn"})]
+                    api/dispatch!     (fn [_] {:stopReason "end_turn"})]
         (sut/process-message! test-dir {:channel_id "C999"
                                         :author     {:id "123"}
                                         :content    "hello"}))
@@ -116,8 +117,8 @@
                     :crew      {"main" {:model "grover" :soul "You are Isaac."}}
                     :models    {"grover" {:model "echo" :provider "grover" :context-window 32768}}
                     :providers {"grover" {:api "grover"}}}]
-      (with-redefs [config/load-config (fn [& _] cfg)
-                    bridge/dispatch!     (fn [request]
+      (with-redefs [config/load-config-result (stub-config-result cfg)
+                    api/dispatch!     (fn [request]
                                          (reset! captured (:input request))
                                          {:stopReason "end_turn"})]
         (sut/process-message! test-dir {:channel_id      "C999"
@@ -133,8 +134,8 @@
 
   (it "omits channel label when the channel has no configured name"
     (let [captured (atom nil)]
-      (with-redefs [config/load-config (fn [& _] base-config)
-                    bridge/dispatch!     (fn [request]
+      (with-redefs [config/load-config-result (stub-config-result base-config)
+                    api/dispatch!     (fn [request]
                                          (reset! captured (:input request))
                                          {:stopReason "end_turn"})]
         (sut/process-message! test-dir {:channel_id      "C999"
@@ -148,8 +149,8 @@
   (it "passes the crew-id in thin opts so bridge can resolve crew tools"
     (let [captured (atom nil)
           cfg      (assoc-in base-config [:crew "main" :tools :allow] [:read :write :exec])]
-      (with-redefs [config/load-config (fn [& _] cfg)
-                    bridge/dispatch!     (fn [request]
+      (with-redefs [config/load-config-result (stub-config-result cfg)
+                    api/dispatch!     (fn [request]
                                          (reset! captured {:state-dir    (:state-dir request)
                                                            :session-name (:session-key request)
                                                            :input        (:input request)
@@ -162,8 +163,8 @@
 
   (it "creates a session named discord-<channel-id> for a first message"
     (let [captured (atom nil)]
-      (with-redefs [config/load-config (fn [& _] base-config)
-                    bridge/dispatch!     (fn [request]
+      (with-redefs [config/load-config-result (stub-config-result base-config)
+                    api/dispatch!     (fn [request]
                                          (reset! captured {:state-dir    (:state-dir request)
                                                            :session-name (:session-key request)
                                                            :input        (:input request)})
@@ -176,8 +177,8 @@
       (should-not-be-nil (storage/get-session test-dir "discord-C999"))))
 
   (it "writes only crew when creating a Discord session"
-    (with-redefs [config/load-config (fn [& _] base-config)
-                  bridge/dispatch!     (fn [_]
+    (with-redefs [config/load-config-result (stub-config-result base-config)
+                  api/dispatch!     (fn [_]
                                        {:stopReason "end_turn"})]
       (sut/process-message! test-dir {:channel_id "C999"
                                       :author     {:id "123"}
@@ -187,8 +188,8 @@
         (should-not (contains? session :agent)))))
 
   (it "records Discord origin, guild chat type, and a non-state cwd for guild sessions"
-    (with-redefs [config/load-config (fn [& _] base-config)
-                  bridge/dispatch!     (fn [_]
+    (with-redefs [config/load-config-result (stub-config-result base-config)
+                  api/dispatch!     (fn [_]
                                        {:stopReason "end_turn"})]
       (sut/process-message! test-dir {:channel_id "C999"
                                       :guild_id   "G789"
@@ -200,8 +201,8 @@
         (should-not= test-dir (:cwd session)))))
 
   (it "records direct chat type for DM sessions"
-    (with-redefs [config/load-config (fn [& _] base-config)
-                  bridge/dispatch!     (fn [_]
+    (with-redefs [config/load-config-result (stub-config-result base-config)
+                  api/dispatch!     (fn [_]
                                        {:stopReason "end_turn"})]
       (sut/process-message! test-dir {:channel_id "D111"
                                       :author     {:id "123"}
@@ -213,12 +214,12 @@
   (it "routes accepted gateway messages through the Discord client"
     (let [captured   (atom nil)
           callbacks* (atom nil)]
-      (with-redefs [config/load-config (fn [& _] (assoc-in base-config [:comms :discord]
+      (with-redefs [config/load-config-result (stub-config-result (assoc-in base-config [:comms :discord]
                                                             {:discord/token      "test-token"
                                                              :discord/allow-from {:guilds ["G789"]
                                                                                   :users  ["123"]}
                                                              :crew               "main"}))
-                    bridge/dispatch!     (fn [request]
+                    api/dispatch!     (fn [request]
                                          (reset! captured {:input (:input request) :session-name (:session-key request)})
                                          {:stopReason "end_turn"})]
         (let [{:keys [client]} (sut/connect! {:state-dir   test-dir
@@ -264,19 +265,16 @@
   (it "routes accepted gateway messages when config is supplied via overrides"
     (let [captured   (atom nil)
           callbacks* (atom nil)]
-      (fs/mkdirs (str test-dir "/.isaac/config"))
-      (fs/spit (str test-dir "/.isaac/config/isaac.edn")
+      (fs/mkdirs fs/*fs* (str test-dir "/config"))
+      (fs/spit fs/*fs* (str test-dir "/config/isaac.edn")
                (pr-str {:comms    {:discord {:discord/token      "test-token"
                                              :discord/allow-from {:guilds ["G789"]
                                                                   :users  ["123"]}
                                              :crew               "main"}}
                         :sessions {:naming-strategy :sequential}}))
-      (with-redefs [bridge/dispatch! (fn [& args]
-                                       ;; Accept either (request) or (state-dir request) — discord now
-                                       ;; passes a single charge.
-                                       (let [request (last args)]
-                                         (reset! captured {:input (:input request) :session-name (:session-key request)})
-                                         {:stopReason "end_turn"}))]
+      (with-redefs [api/dispatch! (fn [request]
+                                    (reset! captured {:input (:input request) :session-name (:session-key request)})
+                                    {:stopReason "end_turn"})]
         (let [{:keys [client]} (sut/connect! {:state-dir     test-dir
                                               :cfg-overrides {:comms    {:discord {:discord/token      "test-token"
                                                                                    :discord/allow-from {:guilds ["G789"]

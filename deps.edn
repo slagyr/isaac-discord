@@ -9,9 +9,9 @@
 
   :test {:extra-paths ["spec"]
          :extra-deps  {io.github.slagyr/isaac      {:git/url "https://github.com/slagyr/isaac.git"
-                                                    :git/sha "6d22b61a154a1e029ac457a8297df6756d0ede9b"}
+                                                    :git/sha "939aa4681e2d0c411672a80c7a0cc486b007b1fe"}
                        io.github.slagyr/isaac-spec {:git/url "https://github.com/slagyr/isaac.git"
-                                                    :git/sha "6d22b61a154a1e029ac457a8297df6756d0ede9b"
+                                                    :git/sha "939aa4681e2d0c411672a80c7a0cc486b007b1fe"
                                                     :deps/root "spec"}
                        speclj/speclj               {:mvn/version "3.13.0"}
                        babashka/process            {:mvn/version "0.5.22"}

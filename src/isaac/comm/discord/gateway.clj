@@ -2,8 +2,8 @@
   (:require
     [cheshire.core :as json]
     [isaac.logger :as log]
-    [isaac.scheduler :as scheduler]
-    [isaac.system :as system]
+    [isaac.nexus :as nexus]
+    [isaac.scheduler.runtime :as scheduler]
     [isaac.util.ws-client :as ws]))
 
 (def gateway-url "wss://gateway.discord.gg/?v=10&encoding=json")
@@ -79,7 +79,7 @@
     (log/debug :discord.gateway/heartbeat :sequence (:d payload))))
 
 (defn- schedule-heartbeats! [client interval-ms]
-  (when-let [sch (or (:scheduler client) (system/get :scheduler))]
+  (when-let [sch (or (:scheduler client) (nexus/get :scheduler))]
     (let [id (scheduler/every! sch interval-ms
                                (fn [_] (when (:running? @(:state client))
                                          (send-heartbeat! client))))]

@@ -7,8 +7,7 @@
     [isaac.logger :as log]
     [isaac.comm.discord.gateway :as gateway]
     [isaac.comm.discord.rest :as rest]
-    [isaac.config.loader :as config]
-    [isaac.fs :as fs]))
+    [isaac.config.api :as config]))
 
 (defn- ->id [value]
   (cond
@@ -31,7 +30,7 @@
 
 (defn- effective-config [state-dir overrides]
   (merge-config (if state-dir
-                  (config/load-config {:home (fs/parent state-dir)})
+                  (:config (config/load-config-result {:root state-dir}))
                   {})
                 overrides))
 
@@ -272,13 +271,13 @@
      :integration di}))
 
 (defn integration [ctx]
-  (->DiscordIntegration (:state-dir ctx) (:connect-ws! ctx) (atom nil) (atom nil)))
+  (->DiscordIntegration (:root ctx) (:connect-ws! ctx) (atom nil) (atom nil)))
 
 (defn make
   "Comm registry factory: builds a DiscordIntegration from host context.
-   host = {:state-dir ... :connect-ws! ... :name <slot-key>}"
+   host = {:root ... :connect-ws! ... :name <slot-key>}"
   [host]
-  (->DiscordIntegration (:state-dir host) (:connect-ws! host) (atom nil) (atom nil)))
+  (->DiscordIntegration (:root host) (:connect-ws! host) (atom nil) (atom nil)))
 
 (defn discord-integration? [value]
   (instance? DiscordIntegration value))
