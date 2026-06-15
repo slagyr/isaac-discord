@@ -71,8 +71,8 @@ jobs:
       - name: Warm dependency classpaths
         working-directory: isaac-discord
         run: |
-          clojure -A:dev-local:spec -e "(+ 1 2)" >/dev/null
-          clojure -A:dev-local:features -e "(+ 1 2)" >/dev/null
+          clojure -P -M:dev-local:spec
+          clojure -P -M:dev-local:features
 
       - name: Run CI (specs + features)
         working-directory: isaac-discord
