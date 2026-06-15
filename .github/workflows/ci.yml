@@ -37,7 +37,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: slagyr/isaac-server
-          ref: 49d8506fe04574b4b804752f9c2f0b5ebcbc7afe
+          ref: faab82691202521c7312b7e9786620a8c4f02d88
           path: isaac-server
 
       - name: Set up Java
@@ -45,6 +45,7 @@ jobs:
         with:
           distribution: temurin
           java-version: '21'
+          cache: maven
 
       - name: Set up Clojure and Babashka
         uses: DeLaGuardo/setup-clojure@13.4
@@ -59,10 +60,20 @@ jobs:
             ~/.m2/repository
             ~/.gitlibs
             ~/.deps.clj
+            ~/.clojure
             isaac-discord/.cpcache
-          key: ${{ runner.os }}-clojure-${{ hashFiles('isaac-discord/**/deps.edn', 'isaac-discord/**/bb.edn') }}
+            isaac-foundation/.cpcache
+            isaac-agent/.cpcache
+            isaac-server/.cpcache
+          key: ${{ runner.os }}-clojure-discord-${{ hashFiles('isaac-discord/deps.edn', 'isaac-discord/bb.edn', 'isaac-foundation/deps.edn', 'isaac-agent/deps.edn', 'isaac-server/deps.edn') }}
           restore-keys: |
-            ${{ runner.os }}-clojure-
+            ${{ runner.os }}-clojure-discord-
+
+      - name: Warm dependency classpaths
+        working-directory: isaac-discord
+        run: |
+          clojure -A:dev-local:spec -e "(+ 1 2)" >/dev/null
+          clojure -A:dev-local:features -e "(+ 1 2)" >/dev/null
 
       - name: Run CI (specs + features)
         working-directory: isaac-discord

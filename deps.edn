@@ -25,9 +25,9 @@
                                                                :git/sha "535ce491e45875ac97bf97a4b2306def7bb82a7c"
                                                                :deps/root "spec"}
                        io.github.slagyr/isaac-server           {:git/url "https://github.com/slagyr/isaac-server.git"
-                                                                :git/sha "49d8506fe04574b4b804752f9c2f0b5ebcbc7afe"}
+                                                                :git/sha "faab82691202521c7312b7e9786620a8c4f02d88"}
                        io.github.slagyr/isaac-server-test-support {:git/url "https://github.com/slagyr/isaac-server.git"
-                                                                   :git/sha "49d8506fe04574b4b804752f9c2f0b5ebcbc7afe"
+                                                                   :git/sha "faab82691202521c7312b7e9786620a8c4f02d88"
                                                                    :deps/root "spec-support"}
                        speclj/speclj                           {:mvn/version "3.13.0"}
                        babashka/process                        {:mvn/version "0.5.22"}
@@ -49,9 +49,9 @@
 
   :features {:extra-paths ["feature-steps" "../isaac-agent/src" "spec"]
              :extra-deps  {io.github.slagyr/isaac-server                {:git/url "https://github.com/slagyr/isaac-server.git"
-                                                                      :git/sha "49d8506fe04574b4b804752f9c2f0b5ebcbc7afe"}
+                                                                      :git/sha "faab82691202521c7312b7e9786620a8c4f02d88"}
                            io.github.slagyr/isaac-server-test-support   {:git/url "https://github.com/slagyr/isaac-server.git"
-                                                                         :git/sha "49d8506fe04574b4b804752f9c2f0b5ebcbc7afe"
+                                                                         :git/sha "faab82691202521c7312b7e9786620a8c4f02d88"
                                                                          :deps/root "spec-support"}
                            io.github.slagyr/isaac-foundation-spec       {:git/url "https://github.com/slagyr/isaac-foundation.git"
                                                                         :git/tag "v0.1.0"
