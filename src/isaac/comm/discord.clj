@@ -4,10 +4,13 @@
     [clojure.string :as str]
     [isaac.api :as api]
     [isaac.charge :as charge]
-    [isaac.logger :as log]
+    [isaac.comm.factory :as factory]
     [isaac.comm.discord.gateway :as gateway]
     [isaac.comm.discord.rest :as rest]
-    [isaac.config.api :as config]))
+    [isaac.config.loader :as loader]
+    [isaac.config.root :as root]
+    [isaac.logger :as log]
+    [isaac.nexus :as nexus]))
 
 (defn- ->id [value]
   (cond
@@ -30,7 +33,7 @@
 
 (defn- effective-config [state-dir overrides]
   (merge-config (if state-dir
-                  (:config (config/load-config-result {:root state-dir}))
+                  (:config (loader/load-config-result {:root state-dir}))
                   {})
                 overrides))
 
@@ -65,12 +68,14 @@
         (:model discord-cfg))))
 
 (defn- session->channel-id [discord-cfg session-name]
-  (or (some (fn [[channel-id channel-cfg]]
-              (when (= session-name (:session channel-cfg))
-                (str channel-id)))
-            (get discord-cfg :discord/channels {}))
-      (when (str/starts-with? session-name "discord-")
-        (subs session-name (count "discord-")))))
+  (when session-name
+    (let [name (str session-name)]
+      (or (some (fn [[channel-id channel-cfg]]
+                  (when (= name (:session channel-cfg))
+                    (str channel-id)))
+                (get discord-cfg :discord/channels {}))
+          (when (str/starts-with? name "discord-")
+            (subs name (count "discord-")))))))
 
 (defn- payload-chat-type [payload]
   (if (:guild_id payload) "guild" "direct"))
@@ -80,18 +85,18 @@
            :channel-id (->id (:channel_id payload))}
     (:guild_id payload) (assoc :guild-id (->id (:guild_id payload)))))
 
-(defn- create-session! [state-dir session-name crew-id payload]
-  (:name (api/create-session! state-dir session-name
-                                  {:channel  "discord"
-                                   :chatType (payload-chat-type payload)
-                                   :crew     crew-id
-                                   :cwd      (System/getProperty "user.home")
-                                   :origin   (payload-origin payload)})))
+(defn- create-session! [session-name crew-id payload]
+  (:name (api/create-session! session-name
+                              {:channel  "discord"
+                               :chatType (payload-chat-type payload)
+                               :crew     crew-id
+                               :cwd      (System/getProperty "user.home")
+                               :origin   (payload-origin payload)})))
 
-(defn- ensure-session! [state-dir session-name crew-id payload]
-  (if (api/get-session state-dir session-name)
+(defn- ensure-session! [session-name crew-id payload]
+  (if (api/get-session session-name)
     session-name
-    (create-session! state-dir session-name crew-id payload)))
+    (create-session! session-name crew-id payload)))
 
 ;; --- Turn context ---
 
@@ -194,9 +199,10 @@
   (on-config-change! [this old new]
     (when new (reset! cfg new))
     (let [old-token (:discord/token old)
-          new-token (:discord/token new)]
+          new-token (:discord/token new)
+          current   @conn]
       (cond
-        (and (not old-token) new-token state-dir)
+        (and (not old-token) new-token state-dir (nil? current))
         (do
           (let [result (connect! (cond-> {:cfg-overrides {:comms {:discord new}}
                                           :comm-impl     this
@@ -206,16 +212,15 @@
           (log/info :discord.client/started))
 
         (and old-token (not new-token))
-        (when-let [current @conn]
+        (when current
           (gateway/stop! (:client current))
           (reset! conn nil)
           (log/info :discord.client/stopped))
 
-        (and old-token new-token)
-        (when-let [current @conn]
-          (gateway/update-allow-from! (:client current)
-                                      {:allow-from-users  (get-in new [:discord/allow-from :users])
-                                       :allow-from-guilds (get-in new [:discord/allow-from :guilds])}))))))
+        (and new-token current)
+        (gateway/update-allow-from! (:client current)
+                                    {:allow-from-users  (get-in new [:discord/allow-from :users])
+                                     :allow-from-guilds (get-in new [:discord/allow-from :guilds])})))))
 
 (defn discord-cfg [integration]
   (when integration @(.-cfg integration)))
@@ -234,7 +239,7 @@
           session-name (channel-session-name discord-cfg* channel-id)
           crew-id      (channel-crew cfg discord-cfg* channel-id)
           model-ref    (channel-model discord-cfg* channel-id)
-          session-name (ensure-session! state-dir session-name crew-id payload)
+          session-name (ensure-session! session-name crew-id payload)
           input        (or (:content payload) "")
           bot-id       (integration-bot-id comm-impl)
           trusted      (build-trusted-block payload discord-cfg* bot-id)
@@ -274,10 +279,15 @@
   (->DiscordIntegration (:root ctx) (:connect-ws! ctx) (atom nil) (atom nil)))
 
 (defn make
-  "Comm registry factory: builds a DiscordIntegration from host context.
+  "Comm factory: builds a DiscordIntegration from host context.
    host = {:root ... :connect-ws! ... :name <slot-key>}"
   [host]
   (->DiscordIntegration (:root host) (:connect-ws! host) (atom nil) (atom nil)))
+
+(defmethod factory/create :discord [node-path _slice]
+  (make {:name        (last node-path)
+         :root        (or (nexus/get :root) (root/current-root))
+         :connect-ws! nil}))
 
 (defn discord-integration? [value]
   (instance? DiscordIntegration value))

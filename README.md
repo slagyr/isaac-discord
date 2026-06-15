@@ -55,11 +55,11 @@ bb features   # Run Gherkin feature scenarios
 bb ci         # Run both
 ```
 
-Depends on [Isaac core](https://github.com/slagyr/isaac). `bb.edn` auto-detects
-a sibling `../isaac` checkout when present, so local cross-repo edits don't
-need a sha bump; set `ISAAC_GIT=1` to force the pinned git sha even with the
-sibling present. Bump `:git/sha` in `deps.edn` and `bb.edn` when CI / fresh
-clones need newer Isaac code.
+Depends on [isaac-foundation](https://github.com/slagyr/isaac-foundation) and
+[isaac-agent](https://github.com/slagyr/isaac-agent). Use the `:dev-local` alias
+for sibling checkouts (`../isaac-foundation`, `../isaac-agent`, `../isaac-server`
+for features). Bump `:git/sha` in `deps.edn` when CI needs newer split-module
+code.
 
 ## License
 

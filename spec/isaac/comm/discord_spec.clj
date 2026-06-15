@@ -6,7 +6,7 @@
     [isaac.comm.discord :as sut]
     [isaac.comm.discord.rest :as rest]
     [isaac.comm.protocol :as comm]
-    [isaac.config.api :as config]
+    [isaac.config.loader :as loader]
     [isaac.fs :as fs]
     [isaac.logger :as log]
     [isaac.session.spec-helper :as storage]
@@ -55,7 +55,7 @@
   (it "routes an accepted message to the channel session"
     (let [captured    (atom nil)
           integration (sut/->DiscordIntegration test-dir nil (atom {:discord/token "test-token"}) (atom nil))]
-      (with-redefs [config/load-config-result (stub-config-result base-config)
+      (with-redefs [loader/load-config-result (stub-config-result base-config)
                     api/dispatch!     (fn [request]
                                          (reset! captured {:session-name (:session-key request)
                                                            :input        (:input request)
@@ -78,7 +78,7 @@
                     :models    {"grover" {:model "echo" :provider "grover" :context-window 32768}
                                 "bender" {:model "echo-bender" :provider "grover" :context-window 32768}}
                     :providers {"grover" {:api "grover"}}}]
-      (with-redefs [config/load-config-result (stub-config-result cfg)
+      (with-redefs [loader/load-config-result (stub-config-result cfg)
                     charge/build         (fn [input]
                                            (reset! captured {:input (:input input) :opts input})
                                            {:charge/type :charge})
@@ -101,7 +101,7 @@
                                 "bender"      {:model "echo-bender" :provider "grover" :context-window 32768}
                                 "chef-bender" {:model "echo-chef" :provider "grover" :context-window 32768}}
                     :providers {"grover" {:api "grover"}}}]
-      (with-redefs [config/load-config-result (stub-config-result cfg)
+      (with-redefs [loader/load-config-result (stub-config-result cfg)
                     charge/build         (fn [input]
                                            (reset! captured {:input (:input input) :opts input})
                                            {:charge/type :charge})
@@ -117,7 +117,7 @@
                     :crew      {"main" {:model "grover" :soul "You are Isaac."}}
                     :models    {"grover" {:model "echo" :provider "grover" :context-window 32768}}
                     :providers {"grover" {:api "grover"}}}]
-      (with-redefs [config/load-config-result (stub-config-result cfg)
+      (with-redefs [loader/load-config-result (stub-config-result cfg)
                     api/dispatch!     (fn [request]
                                          (reset! captured (:input request))
                                          {:stopReason "end_turn"})]
@@ -134,7 +134,7 @@
 
   (it "omits channel label when the channel has no configured name"
     (let [captured (atom nil)]
-      (with-redefs [config/load-config-result (stub-config-result base-config)
+      (with-redefs [loader/load-config-result (stub-config-result base-config)
                     api/dispatch!     (fn [request]
                                          (reset! captured (:input request))
                                          {:stopReason "end_turn"})]
@@ -149,7 +149,7 @@
   (it "passes the crew-id in thin opts so bridge can resolve crew tools"
     (let [captured (atom nil)
           cfg      (assoc-in base-config [:crew "main" :tools :allow] [:read :write :exec])]
-      (with-redefs [config/load-config-result (stub-config-result cfg)
+      (with-redefs [loader/load-config-result (stub-config-result cfg)
                     api/dispatch!     (fn [request]
                                          (reset! captured {:state-dir    (:state-dir request)
                                                            :session-name (:session-key request)
@@ -163,7 +163,7 @@
 
   (it "creates a session named discord-<channel-id> for a first message"
     (let [captured (atom nil)]
-      (with-redefs [config/load-config-result (stub-config-result base-config)
+      (with-redefs [loader/load-config-result (stub-config-result base-config)
                     api/dispatch!     (fn [request]
                                          (reset! captured {:state-dir    (:state-dir request)
                                                            :session-name (:session-key request)
@@ -177,7 +177,7 @@
       (should-not-be-nil (storage/get-session test-dir "discord-C999"))))
 
   (it "writes only crew when creating a Discord session"
-    (with-redefs [config/load-config-result (stub-config-result base-config)
+    (with-redefs [loader/load-config-result (stub-config-result base-config)
                   api/dispatch!     (fn [_]
                                        {:stopReason "end_turn"})]
       (sut/process-message! test-dir {:channel_id "C999"
@@ -188,7 +188,7 @@
         (should-not (contains? session :agent)))))
 
   (it "records Discord origin, guild chat type, and a non-state cwd for guild sessions"
-    (with-redefs [config/load-config-result (stub-config-result base-config)
+    (with-redefs [loader/load-config-result (stub-config-result base-config)
                   api/dispatch!     (fn [_]
                                        {:stopReason "end_turn"})]
       (sut/process-message! test-dir {:channel_id "C999"
@@ -201,7 +201,7 @@
         (should-not= test-dir (:cwd session)))))
 
   (it "records direct chat type for DM sessions"
-    (with-redefs [config/load-config-result (stub-config-result base-config)
+    (with-redefs [loader/load-config-result (stub-config-result base-config)
                   api/dispatch!     (fn [_]
                                        {:stopReason "end_turn"})]
       (sut/process-message! test-dir {:channel_id "D111"
@@ -214,7 +214,7 @@
   (it "routes accepted gateway messages through the Discord client"
     (let [captured   (atom nil)
           callbacks* (atom nil)]
-      (with-redefs [config/load-config-result (stub-config-result (assoc-in base-config [:comms :discord]
+      (with-redefs [loader/load-config-result (stub-config-result (assoc-in base-config [:comms :discord]
                                                             {:discord/token      "test-token"
                                                              :discord/allow-from {:guilds ["G789"]
                                                                                   :users  ["123"]}

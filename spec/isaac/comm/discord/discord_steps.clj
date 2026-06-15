@@ -3,23 +3,32 @@
     [babashka.http-client :as http]
     [cheshire.core :as json]
     [clojure.edn :as edn]
+    [clojure.java.io :as io]
     [clojure.string :as str]
     [gherclj.core :as g :refer [defgiven defwhen defthen helper!]]
     [isaac.comm.discord :as discord]
+    [isaac.comm.factory :as comm-factory]
     [isaac.comm.discord.gateway :as gateway]
     [isaac.comm.discord.test-clock :as test-clock]
     [isaac.comm.registry :as comm-registry]
     [isaac.config.api :as config]
+    [isaac.config.loader :as loader]
+    [isaac.foundation.fs-steps :as ffs]
+
     [isaac.fs :as fs]
     [isaac.llm.api.grover :as grover]
     [isaac.logger :as log]
-    [isaac.session.spec-helper :as storage]))
+    [isaac.nexus :as nexus]
+    [isaac.server.app :as server-app]
+    [isaac.spec-helper :as helper]
+    [isaac.session.session-steps :as session-steps]
+    [isaac.session.spec-helper :as storage]
+    [isaac.session.store.spi :as session-store]))
 
 (helper! isaac.comm.discord.discord-steps)
 
 ;; Bridge the in-memory fake gateway into integrations started by the server.
-;; Upstream isaac's server-running step does not propagate :discord-connect-ws!
-;; into app/start! :connect-ws!, so we wrap make to inject it from g state.
+;; factory/create passes :connect-ws! nil; inject from g when the Gateway is faked.
 (alter-var-root #'discord/make
   (fn [original]
     (fn [host]
@@ -50,19 +59,23 @@
     (re-matches #"-?\d+" value) (parse-long value)
     :else value))
 
+(defn- root-dir []
+  (or (g/get :runtime-root-dir)
+      (g/get :root)))
+
 (defn- state-dir []
   (or (g/get :runtime-state-dir)
-      (some-> (g/get :state-dir) (str "/.isaac"))))
+      (root-dir)))
 
 (defn- home-dir []
-  (or (g/get :state-dir)
-      (some-> (g/get :runtime-state-dir) fs/parent)))
+  (or (g/get :root)
+      (some-> (g/get :runtime-root-dir) fs/parent)))
 
 (defn- mem-fs []
-  (or (g/get :mem-fs) fs/*fs*))
+  (or (g/get :mem-fs) (nexus/get :fs) fs/*fs*))
 
 (defn- with-feature-fs [f]
-  (binding [fs/*fs* (mem-fs)]
+  (nexus/-with-nested-nexus {:fs (mem-fs)}
     (f)))
 
 (defn- get-path [data path]
@@ -84,13 +97,13 @@
 
 (defn- loaded-config []
   (when (state-dir)
-    (with-feature-fs #(:config (config/load-config-result {:root (state-dir)})))))
+    (with-feature-fs #(:config (loader/load-config-result {:root (state-dir)})))))
 
 (defn- routing-enabled? []
-  (let [cfg (loaded-config)]
+  (when-let [cfg (loaded-config)]
     (and (state-dir)
-         (seq (or (g/get :crew) (g/get :agents) (:crew cfg)))
-         (seq (or (g/get :models) (:models cfg))))))
+         (seq (:crew cfg))
+         (seq (:models cfg)))))
 
 (defn- discord-cfg-overrides []
   (cond-> {:comms {:discord (current-discord-config)}}
@@ -154,6 +167,7 @@
 
 (defn- active-integration []
   (or (g/get :discord-integration)
+      (nexus/get-in [:comms :discord])
       (comm-registry/comm-for "discord")))
 
 (defn- route-state [payload]
@@ -161,8 +175,11 @@
         di-cfg       (discord/discord-cfg di)
         channel-id   (str (get payload :channel_id))
         session-name (when di-cfg (discord/channel-session-name di-cfg channel-id))
-        count        (when (and session-name (state-dir))
-                       (count (or (with-feature-fs #(storage/get-transcript (state-dir) session-name)) [])))]
+        count        (when (and session-name (session-store/registered-store))
+                       (count (or (with-feature-fs
+                                    #(session-store/get-transcript (session-store/registered-store)
+                                                                   session-name))
+                                  [])))]
     {:count count :session session-name}))
 
 (defn- route-missing? [{:keys [count session]} before]
@@ -180,14 +197,93 @@
 (defn- sent-op [op]
   (some #(when (= op (:op %)) %) @(g/get :discord-sent)))
 
+(defn- discord-module-coord []
+  {:isaac.comm.discord {:local/root (System/getProperty "user.dir")}})
+
+(defn- discord-module-index []
+  (when-let [manifest (some-> (io/resource "isaac-manifest.edn") slurp edn/read-string)]
+    {:isaac.comm.discord {:coord {:local/root (System/getProperty "user.dir")}
+                          :manifest manifest
+                          :path nil}}))
+
+(defn- merge-modules-into-isaac-edn! [root]
+  (when root
+    (with-feature-fs
+      (fn []
+        (let [path (str root "/config/isaac.edn")
+              fs*  (mem-fs)]
+          (when (fs/exists? fs* path)
+            (let [data    (edn/read-string (fs/slurp fs* path))
+                  updated (update data :modules merge (discord-module-coord))]
+              (fs/spit fs* path (pr-str updated)))))))))
+
+(defn- persist-discord-modules! []
+  (when-let [root (state-dir)]
+    (with-feature-fs
+      (fn []
+        (let [path    (str root "/config/isaac.edn")
+              fs*     (mem-fs)
+              current (if (fs/exists? fs* path)
+                        (edn/read-string (fs/slurp fs* path))
+                        {})
+              updated (update current :modules merge (discord-module-coord))]
+          (fs/mkdirs fs* (fs/parent path))
+          (fs/spit fs* path (pr-str updated)))))))
+
+(defn- ensure-grover-defaults-on-disk! []
+  (when-let [root (state-dir)]
+    (with-feature-fs
+      (fn []
+        (let [cfg-root (str root "/config")
+              fs*      (mem-fs)]
+          (when-not (fs/exists? fs* (str cfg-root "/crew/main.edn"))
+            (fs/mkdirs fs* cfg-root)
+            (fs/mkdirs fs* (str cfg-root "/models"))
+            (fs/mkdirs fs* (str cfg-root "/providers"))
+            (fs/mkdirs fs* (str cfg-root "/crew"))
+            (let [isaac-path (str cfg-root "/isaac.edn")
+                  current    (if (fs/exists? fs* isaac-path)
+                               (edn/read-string (fs/slurp fs* isaac-path))
+                               {})]
+              (fs/spit fs* isaac-path
+                       (pr-str (merge {:defaults {:crew "main" :model "grover"}}
+                                      current)))
+              (fs/spit fs* (str cfg-root "/models/grover.edn")
+                       (pr-str {:model "echo" :provider :grover :context-window 32768}))
+              (fs/spit fs* (str cfg-root "/providers/grover.edn") (pr-str {}))
+              (fs/spit fs* (str cfg-root "/crew/main.edn")
+                       (pr-str {:model :grover :soul "You are Atticus."})))))))))
+
+(ffs/register-post-write-hook!
+  (fn [path]
+    (when (and (state-dir) (str/ends-with? path "/config/isaac.edn"))
+      (merge-modules-into-isaac-edn! (state-dir)))))
+
+(alter-var-root #'server-app/start!
+  (fn [original]
+    (fn [opts]
+      (let [fake-ws (try (g/get :discord-connect-ws!) (catch Exception _ nil))
+            result  (original (cond-> opts
+                               (and fake-ws (not (:connect-ws! opts)))
+                               (assoc :connect-ws! fake-ws)))]
+        (ensure-grover-defaults-on-disk!)
+        (persist-discord-modules!)
+        result))))
+
 (defn- ensure-discord-module-declared! []
-  ;; isaac's discover! only adds modules from config :modules or {cwd}/modules/.
-  ;; The lifecycle features assume discord auto-activates from server config —
-  ;; pre-seed :modules so discover! finds isaac-discord's manifest (at src/) on
-  ;; the classpath.
+  ;; discover! resolves :modules from disk; inject-module-index (merged in
+  ;; server-running) ensures the classpath manifest is visible even before
+  ;; modules are written to isaac.edn — required for comm :extra-schema and
+  ;; factory/create after the split-module migration.
+  (when-not (get-method comm-factory/create :discord)
+    (require 'isaac.comm.discord))
   (g/update! :server-config
-             #(update (or % {}) :modules
-                      (fn [m] (merge {:isaac.comm.discord {:local/root "."}} m)))))
+             #(-> (or % {})
+                  (update :modules
+                          (fn [m] (merge (discord-module-coord) m)))
+                  (update :inject-module-index
+                          (fn [m] (merge (discord-module-index) m)))))
+  (persist-discord-modules!))
 
 (defn discord-faked []
   (let [sent       (atom [])
@@ -196,6 +292,7 @@
     (g/assoc! :discord-sent sent)
     (g/assoc! :discord-callbacks callbacks*)
     (g/assoc! :discord-connect-ws! connect-fn)
+    (ensure-grover-defaults-on-disk!)
     (ensure-discord-module-declared!)))
 
 (defn discord-configured [table]
@@ -211,11 +308,14 @@
         (let [result (with-feature-fs
                      #(discord/connect! {:cfg-overrides   (discord-cfg-overrides)
                                          :scheduler       (:scheduler clock)
-                                         :route-messages? (routing-enabled?)
+                                         :route-messages? true
                                          :state-dir       (state-dir)
                                          :connect-ws!     (fake-connect!)}))]
           (g/assoc! :discord-client (:client result))
           (when-let [di (:integration result)]
+            (when-let [cfg (loaded-config)]
+              (reset! (.-cfg di) (merge (get-in cfg [:comms :discord] {})
+                                        (current-discord-config))))
             (g/assoc! :discord-integration di))))
       (let [client (gateway/connect! {:token             (config-value cfg "discord/token")
                                       :allow-from-users  (config-value cfg "discord/allow-from.users")
@@ -254,22 +354,23 @@
                           (assoc-in acc (mapv keyword (clojure.string/split k #"\.")) (parse-value v)))
                         {}
                         (table-map table))
-         before  (when (routing-enabled?) (with-feature-fs #(route-state payload)))]
-    (when-let [integration (active-integration)]
-      (reset! (.-cfg integration) (current-discord-config)))
-    (config/dangerously-install-config! (loaded-config) "discord feature")
+        before  (when (routing-enabled?) (with-feature-fs #(route-state payload)))]
+    (when-let [cfg (loaded-config)]
+      (config/dangerously-install-config! cfg "discord feature")
+      (when-let [integration (active-integration)]
+        (reset! (.-cfg integration)
+                (merge (get-in cfg [:comms :discord] {}) (current-discord-config)))))
     (with-http-post-stub
       (fn []
         (with-feature-fs
           (fn []
             ((:on-message @(g/get :discord-callbacks))
-             (json/generate-string {:op 0 :t "MESSAGE_CREATE" :s 2 :d payload}))))
-        (when (and (routing-enabled?)
-                   (route-missing? (with-feature-fs #(route-state payload)) before))
-          (with-feature-fs
-            (fn []
-              (discord/process-message! (active-integration) (state-dir) payload))))))
-    (g/assoc! :llm-request (grover/last-request))))
+             (json/generate-string {:op 0 :t "MESSAGE_CREATE" :s 2 :d payload}))
+            (when (and (routing-enabled?)
+                       (route-missing? (route-state payload) before))
+              (discord/process-message! (active-integration) (state-dir) payload))))
+        (session-steps/await-turn!)
+        (g/assoc! :llm-request (grover/last-request))))))
 
 
 (defn test-clock-advances [n]
@@ -303,6 +404,7 @@
   (g/should-not-be-nil (sent-op 1)))
 
 (defn discord-client-connected []
+  (helper/await-condition #(active-client) 5000)
   (let [client (active-client)]
     (g/should-not-be-nil client)
     (g/should (gateway/running? client))

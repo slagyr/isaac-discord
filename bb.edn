@@ -1,52 +1,27 @@
 {:paths ["src" "spec"]
 
- ;; bb tasks auto-detect isaac: a sibling ../isaac checkout (so cross-repo
- ;; edits land without pushing) when present, otherwise the pinned git sha
- ;; (so fresh clones / CI just work). Set ISAAC_GIT=1 to force git even
- ;; when the local checkout exists.
- ;;
- ;; isaac-spec uses :local/root "../isaac/spec" rather than :local/root
- ;; "../isaac" + :deps/root "spec" — tools.deps applies the inner deps.edn's
- ;; :deps but not its :paths when the same local-root is reused with
- ;; :deps/root, leaving ../isaac/spec off the classpath.
+ :deps {com.cleancoders.c3kit/apron {:mvn/version "3.0.0"}}
+
  :tasks
- {:init (let [use-local? (and (not (System/getenv "ISAAC_GIT"))
-                              (babashka.fs/exists? "../isaac"))]
-          (babashka.deps/add-deps
-            {:deps (if use-local?
-                     '{io.github.slagyr/isaac      {:local/root "../isaac"}
-                       io.github.slagyr/isaac-spec {:local/root "../isaac/spec"}}
-                     '{io.github.slagyr/isaac      {:git/url "https://github.com/slagyr/isaac.git"
-                                                    :git/sha "939aa4681e2d0c411672a80c7a0cc486b007b1fe"}
-                       io.github.slagyr/isaac-spec {:git/url   "https://github.com/slagyr/isaac.git"
-                                                    :git/sha   "939aa4681e2d0c411672a80c7a0cc486b007b1fe"
-                                                    :deps/root "spec"}})}))
+ {spec     {:doc  "Run speclj specs (pass file/dir to narrow)"
+            :task (if (seq *command-line-args*)
+                    (apply shell "clojure" "-M:dev-local:spec" *command-line-args*)
+                    (shell "clojure" "-M:dev-local:spec"))}
 
-  spec     {:doc      "Run discord specs (comm unit specs under bb; server app spec needs JVM — see :spec-jvm)"
-            :requires ([speclj.main :as speclj])
-            :task     (apply speclj/-main "-c"
-                             "spec/isaac/comm/discord_spec.clj"
-                             "spec/isaac/comm/discord/gateway_spec.clj"
-                             "spec/isaac/comm/discord/rest_spec.clj"
-                             *command-line-args*)}
-
-  spec-jvm {:doc  "Run server app spec on the JVM (isaac.server.app pulls deps bb SCI cannot analyze)"
-            :task (shell "clojure" "-M:test" "-m" "speclj.main" "-c"
+  spec-jvm {:doc  "Alias for server app spec (same JVM classpath as :spec)"
+            :task (shell "clojure" "-M:dev-local:spec"
                          "spec/isaac/server/discord_app_spec.clj")}
 
-  features {:doc      "Run discord features (excludes @slow and @wip)"
-            :requires ([gherclj.main :as main])
-            :task     (let [feature-args (if (seq *command-line-args*)
-                                           *command-line-args*
-                                           (->> (file-seq (java.io.File. "features"))
-                                                (filter (fn [f] (.isFile f)))
-                                                (map (fn [f] (.getPath f)))
-                                                (filter (fn [p] (clojure.string/ends-with? p ".feature")))
-                                                sort))]
-                        (apply main/-main (concat ["-s" "isaac.**-steps"]
-                                                  ["-t" "~slow" "-t" "~wip"]
-                                                  feature-args)))}
+  features {:doc  "Run gherclj feature specs (excludes @slow and @wip)"
+            :task (do
+                    (babashka.fs/delete-tree "target")
+                    (apply shell "clojure" "-M:dev-local:features"
+                      *command-line-args*))}
 
   ci       {:doc  "Run all specs and features"
             :task (do (shell "bb" "spec")
-                      (shell "bb" "features"))}}}
+                      (shell "bb" "features"))}
+
+  clean    {:doc  "Remove generated and test artifacts"
+            :task (do (babashka.fs/delete-tree "target")
+                      (println "Cleaned target/"))}}}

@@ -31,11 +31,11 @@ This repo is the Discord comm module for [Isaac](https://github.com/slagyr/isaac
 It registers as an Isaac module via `src/isaac-manifest.edn` and provides a
 `:discord` comm channel that bridges Discord gateway events to Isaac sessions.
 
-**Isaac dependency:** `deps.edn` references Isaac core via a git dep, with a
-`:dev-local` alias for a local `../isaac` checkout. `bb.edn` auto-detects the
-sibling checkout and falls back to the pinned git sha (set `ISAAC_GIT=1` to
-force git even with the local checkout present). Bump the `:git/sha` in both
-files when CI / fresh clones need newer Isaac code.
+**Isaac dependency:** `deps.edn` pins `isaac-foundation` and `isaac-agent` via
+git deps; `:dev-local` overrides to sibling `../isaac-foundation` and
+`../isaac-agent` checkouts. Feature and server-app specs also pull
+`isaac-server` (git-pinned; `:dev-local` → `../isaac-server`). Bump the
+`:git/sha` values when CI / fresh clones need newer split-module code.
 
 ## Testing
 
@@ -54,20 +54,12 @@ and pull in the shared Isaac step namespaces via the git dep.
 - Every `src/` namespace must have a corresponding `spec/` file
 - Run `bb ci` before pushing — both spec and features must be green
 
-## Isaac Core Dependency
+## Split-module APIs
 
-The module depends on Isaac core APIs:
+Production code depends on:
 
-- `isaac.api` — session creation and turn dispatch
-- `isaac.comm` — comm protocol (on-turn-start, on-turn-end, send!)
-- `isaac.logger` — structured logging
-- `isaac.fs` — filesystem abstraction
-- `isaac.util.ws-client` — WebSocket client utilities
-- `isaac.comm.delivery.queue` — message delivery queue
+- **isaac-foundation** — `isaac.logger`, `isaac.nexus`, `isaac.scheduler.runtime`, `isaac.config.loader`
+- **isaac-agent** — `isaac.api`, `isaac.charge`, `isaac.comm.delivery.queue`, `isaac.util.ws-client`, `isaac.comm.factory`
 
-To update the Isaac SHA after new Isaac commits:
-
-```bash
-# In deps.edn and bb.edn, update :git/sha to the new HEAD
-git -C /path/to/isaac rev-parse HEAD
-```
+Comm registration is via `defmethod isaac.comm.factory/create :discord` and the
+`:isaac.agent/comm` manifest contribution (not `register-comm!`).

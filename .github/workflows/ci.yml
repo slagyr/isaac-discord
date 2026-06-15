@@ -16,8 +16,29 @@ jobs:
     env:
       NO_COLOR: "1"
     steps:
-      - name: Check out repository
+      - name: Check out isaac-discord
         uses: actions/checkout@v4
+        with:
+          path: isaac-discord
+
+      - name: Check out split-module siblings
+        uses: actions/checkout@v4
+        with:
+          repository: slagyr/isaac-foundation
+          ref: v0.1.0
+          path: isaac-foundation
+
+      - uses: actions/checkout@v4
+        with:
+          repository: slagyr/isaac-agent
+          ref: 077d087169cb02b37a7434b30de73d29129a7769
+          path: isaac-agent
+
+      - uses: actions/checkout@v4
+        with:
+          repository: slagyr/isaac-server
+          ref: 49d8506fe04574b4b804752f9c2f0b5ebcbc7afe
+          path: isaac-server
 
       - name: Set up Java
         uses: actions/setup-java@v4
@@ -38,10 +59,11 @@ jobs:
             ~/.m2/repository
             ~/.gitlibs
             ~/.deps.clj
-            .cpcache
-          key: ${{ runner.os }}-clojure-${{ hashFiles('**/deps.edn', '**/bb.edn') }}
+            isaac-discord/.cpcache
+          key: ${{ runner.os }}-clojure-${{ hashFiles('isaac-discord/**/deps.edn', 'isaac-discord/**/bb.edn') }}
           restore-keys: |
             ${{ runner.os }}-clojure-
 
       - name: Run CI (specs + features)
+        working-directory: isaac-discord
         run: bb ci
