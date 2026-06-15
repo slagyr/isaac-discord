@@ -45,7 +45,6 @@ jobs:
         with:
           distribution: temurin
           java-version: '21'
-          cache: maven
 
       - name: Set up Clojure and Babashka
         uses: DeLaGuardo/setup-clojure@13.4
