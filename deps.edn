@@ -1,11 +1,11 @@
 {:paths ["src"]
 
  :deps {io.github.slagyr/isaac-foundation {:git/url "https://github.com/slagyr/isaac-foundation.git"
-                                          :git/sha "c52d3d5beb39f14f900e8d3d279f43b179e39254"}
+                                          :git/sha "0d871c826db2bb26a1f18bd42c629f24c60add23"}
         io.github.slagyr/isaac-agent        {:git/url "https://github.com/slagyr/isaac-agent.git"
-                                             :git/sha "1afb347a438e3d8e0f711b1ad14bc03236abc269"}
+                                             :git/sha "4bb336b3e6421dfb388013c907c7d15a6391ef45"}
         io.github.slagyr/isaac-server       {:git/url "https://github.com/slagyr/isaac-server.git"
-                                             :git/sha "54b5aa3512471d30bdde6e02c4d91a9a13fed7a0"}
+                                             :git/sha "d2de38e3018e3825d8686333cda39f4a42febb37"}
         cheshire/cheshire                   {:mvn/version "5.13.0"}
         org.babashka/http-client            {:mvn/version "0.4.22"}}
 
@@ -22,22 +22,22 @@
 
   :spec {:extra-paths ["../isaac-agent/src" "spec"]
          :extra-deps  {io.github.slagyr/isaac-foundation-spec {:git/url "https://github.com/slagyr/isaac-foundation.git"
-                                                               :git/sha "c52d3d5beb39f14f900e8d3d279f43b179e39254"
+                                                               :git/sha "0d871c826db2bb26a1f18bd42c629f24c60add23"
                                                                :deps/root "spec"}
                        io.github.slagyr/isaac-server           {:git/url "https://github.com/slagyr/isaac-server.git"
-                                                                :git/sha "54b5aa3512471d30bdde6e02c4d91a9a13fed7a0"}
+                                                                :git/sha "d2de38e3018e3825d8686333cda39f4a42febb37"}
                        io.github.slagyr/isaac-server-test-support {:git/url "https://github.com/slagyr/isaac-server.git"
-                                                                   :git/sha "54b5aa3512471d30bdde6e02c4d91a9a13fed7a0"
+                                                                   :git/sha "d2de38e3018e3825d8686333cda39f4a42febb37"
                                                                    :deps/root "spec-support"}
                        speclj/speclj                           {:mvn/version "3.13.0"}
                        babashka/process                        {:mvn/version "0.5.22"}
                        io.github.slagyr/gherclj                {:git/tag "v1.3.0" :git/sha "9c3bb1d"}
                        io.github.cleancoders/c3kit-wire        {:git/tag "2.5.1" :git/sha "1fae444"}
                        marigold.bridge/marigold.bridge         {:git/url "https://github.com/slagyr/isaac-foundation.git"
-                                                                :git/sha "c52d3d5beb39f14f900e8d3d279f43b179e39254"
+                                                                :git/sha "0d871c826db2bb26a1f18bd42c629f24c60add23"
                                                                 :deps/root "modules/marigold.bridge"}
                        marigold.longwave/marigold.longwave     {:git/url "https://github.com/slagyr/isaac-foundation.git"
-                                                                :git/sha "c52d3d5beb39f14f900e8d3d279f43b179e39254"
+                                                                :git/sha "0d871c826db2bb26a1f18bd42c629f24c60add23"
                                                                 :deps/root "modules/marigold.longwave"}}
          :main-opts   ["-m" "speclj.main" "-c"
                        "spec/isaac/comm/discord_spec.clj"
@@ -47,12 +47,12 @@
 
   :features {:extra-paths ["feature-steps" "../isaac-agent/src" "spec"]
              :extra-deps  {io.github.slagyr/isaac-server                {:git/url "https://github.com/slagyr/isaac-server.git"
-                                                                      :git/sha "54b5aa3512471d30bdde6e02c4d91a9a13fed7a0"}
+                                                                      :git/sha "d2de38e3018e3825d8686333cda39f4a42febb37"}
                            io.github.slagyr/isaac-server-test-support   {:git/url "https://github.com/slagyr/isaac-server.git"
-                                                                         :git/sha "54b5aa3512471d30bdde6e02c4d91a9a13fed7a0"
+                                                                         :git/sha "d2de38e3018e3825d8686333cda39f4a42febb37"
                                                                          :deps/root "spec-support"}
                            io.github.slagyr/isaac-foundation-spec       {:git/url "https://github.com/slagyr/isaac-foundation.git"
-                                                                        :git/sha "c52d3d5beb39f14f900e8d3d279f43b179e39254"
+                                                                        :git/sha "0d871c826db2bb26a1f18bd42c629f24c60add23"
                                                                         :deps/root "spec"}
                            speclj/speclj                                {:mvn/version "3.13.0"}
                            babashka/process                             {:mvn/version "0.5.22"}
@@ -60,10 +60,10 @@
                            io.github.cleancoders/c3kit-wire             {:git/tag "2.5.1" :git/sha "1fae444"}
                            org.babashka/http-client                     {:mvn/version "0.4.22"}
                            marigold.bridge/marigold.bridge              {:git/url "https://github.com/slagyr/isaac-foundation.git"
-                                                                        :git/sha "c52d3d5beb39f14f900e8d3d279f43b179e39254"
+                                                                        :git/sha "0d871c826db2bb26a1f18bd42c629f24c60add23"
                                                                         :deps/root "modules/marigold.bridge"}
                            marigold.longwave/marigold.longwave          {:git/url "https://github.com/slagyr/isaac-foundation.git"
-                                                                        :git/sha "c52d3d5beb39f14f900e8d3d279f43b179e39254"
+                                                                        :git/sha "0d871c826db2bb26a1f18bd42c629f24c60add23"
                                                                         :deps/root "modules/marigold.longwave"}}
              :main-opts   ["-m" "gherclj.main"
                            "-f" "features"

@@ -1,4 +1,3 @@
-@wip
 Feature: Discord service vs comm slot lifecycle
   The comm slot registers config with the discord Service on load; only
   server boot starts the Service and opens the gateway client.
