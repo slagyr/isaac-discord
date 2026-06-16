@@ -285,6 +285,13 @@
                           (fn [m] (merge (discord-module-index) m)))))
   (persist-discord-modules!))
 
+(defn discord-module-registered []
+  (ensure-discord-module-declared!))
+
+(defn discord-isaac-server-started []
+  (ensure-discord-module-declared!)
+  ((requiring-resolve 'isaac.server.server-steps/server-running)))
+
 (defn discord-faked []
   (let [sent       (atom [])
         callbacks* (atom nil)
@@ -434,6 +441,17 @@
         (g/should= expected actual)))))
 
 ;; region ----- Routing -----
+
+(defgiven "the discord module is registered" isaac.comm.discord.discord-steps/discord-module-registered
+  "Declares :isaac.comm.discord in the module index so config-berth
+   reconciliation can instantiate the comm slot without server boot.")
+
+(defgiven "the discord Isaac server is started" isaac.comm.discord.discord-steps/discord-isaac-server-started
+  "Starts the full HTTP server with discord module index injected — avoids
+   ambiguity with agent-tier 'the Isaac server is started' steps.")
+
+(defwhen "the discord Isaac server boots" isaac.comm.discord.discord-steps/discord-isaac-server-started
+  "When-context alias for server start after a prior When step.")
 
 (defgiven "the Discord Gateway is faked in-memory" isaac.comm.discord.discord-steps/discord-faked
   "Initializes :discord-sent (outbound payload capture) and

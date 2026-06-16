@@ -4,6 +4,9 @@
 
  ;; Phase 8 of the berth epic (isaac-qqgv) moved comm contributions to
  ;; the :isaac.agent/comm berth declared by isaac.foundation.
+ :isaac.server/service
+ {:discord {:namespace isaac.comm.discord.service}}
+
  :isaac.agent/comm
  {:discord {:namespace    isaac.comm.discord
             :extra-schema {:discord/token       {:type        :string

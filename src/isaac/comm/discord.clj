@@ -7,6 +7,7 @@
     [isaac.comm.factory :as factory]
     [isaac.comm.discord.gateway :as gateway]
     [isaac.comm.discord.rest :as rest]
+
     [isaac.config.loader :as loader]
     [isaac.config.root :as root]
     [isaac.logger :as log]
@@ -188,38 +189,12 @@
   api/Reconfigurable
   (on-load [this slice]
     (reset! cfg slice)
-    (when-let [token (:discord/token slice)]
-      (when state-dir
-        (log/info :discord.client/started)
-        (let [result (connect! (cond-> {:cfg-overrides {:comms {:discord slice}}
-                                        :comm-impl     this
-                                        :state-dir     state-dir}
-                                  connect-ws! (assoc :connect-ws! connect-ws!)))]
-          (reset! conn {:client (:client result)})))))
+    ((requiring-resolve 'isaac.comm.discord.service/register-comm!) this))
   (on-config-change! [this old new]
     (reset! cfg new)
-    (let [old-token (:discord/token old)
-          new-token (:discord/token new)
-          current   @conn]
-      (cond
-        (and (not old-token) new-token state-dir (nil? current))
-        (do
-          (let [result (connect! (cond-> {:cfg-overrides {:comms {:discord new}}
-                                          :comm-impl     this
-                                          :state-dir     state-dir}
-                                   connect-ws! (assoc :connect-ws! connect-ws!)))]
-            (reset! conn {:client (:client result)}))
-          (log/info :discord.client/started))
-
-        (and new-token current)
-        (gateway/update-allow-from! (:client current)
-                                    {:allow-from-users  (get-in new [:discord/allow-from :users])
-                                     :allow-from-guilds (get-in new [:discord/allow-from :guilds])}))))
-  (on-unload [_ _slice]
-    (when-let [current @conn]
-      (gateway/stop! (:client current))
-      (reset! conn nil)
-      (log/info :discord.client/stopped))))
+    ((requiring-resolve 'isaac.comm.discord.service/update-comm!) this old new))
+  (on-unload [this _slice]
+    ((requiring-resolve 'isaac.comm.discord.service/unregister-comm!) this)))
 
 (defn discord-cfg [integration]
   (when integration @(.-cfg integration)))

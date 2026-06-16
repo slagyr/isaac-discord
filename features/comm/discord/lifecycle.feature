@@ -18,11 +18,11 @@ Feature: Discord client lifecycle
       | comms.discord.discord/token            | test-token |
       | comms.discord.discord/allow-from.users | ["123"]    |
       | comms.discord.crew             | main       |
-    And the Isaac server is started
+    And the discord Isaac server is started
     Then the Discord client is connected
 
   Scenario: Discord client starts when config is added mid-run
-    Given the Isaac server is started
+    Given the discord Isaac server is started
     When the isaac EDN file "config/isaac.edn" exists with:
       | path                            | value      |
       | comms.discord.discord/token             | test-token |
@@ -40,7 +40,7 @@ Feature: Discord client lifecycle
       | comms.discord.discord/token            | test-token |
       | comms.discord.discord/allow-from.users | ["123"]    |
       | comms.discord.crew             | main       |
-    And the Isaac server is started
+    And the discord Isaac server is started
     And the Discord client is connected
     When the isaac EDN file "config/isaac.edn" exists with:
       | path           | value  |
@@ -58,7 +58,7 @@ Feature: Discord client lifecycle
       | comms.discord.discord/token            | test-token |
       | comms.discord.discord/allow-from.users | ["123"]    |
       | comms.discord.crew             | main       |
-    And the Isaac server is started
+    And the discord Isaac server is started
     And the Discord client is ready as bot "bot-default"
     When the isaac EDN file "config/isaac.edn" exists with:
       | path                            | value         |
