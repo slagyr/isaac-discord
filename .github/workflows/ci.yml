@@ -25,19 +25,19 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: slagyr/isaac-foundation
-          ref: v0.1.0
+          ref: 8b47fe2162db2159f60d6754b109b4f388ddc9eb
           path: isaac-foundation
 
       - uses: actions/checkout@v4
         with:
           repository: slagyr/isaac-agent
-          ref: 077d087169cb02b37a7434b30de73d29129a7769
+          ref: 1afb347a438e3d8e0f711b1ad14bc03236abc269
           path: isaac-agent
 
       - uses: actions/checkout@v4
         with:
           repository: slagyr/isaac-server
-          ref: faab82691202521c7312b7e9786620a8c4f02d88
+          ref: 54b5aa3512471d30bdde6e02c4d91a9a13fed7a0
           path: isaac-server
 
       - name: Set up Java
