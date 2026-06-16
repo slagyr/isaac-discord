@@ -43,9 +43,10 @@ Feature: Discord client lifecycle
     And the discord Isaac server is started
     And the Discord client is connected
     When the isaac EDN file "config/isaac.edn" exists with:
-      | path           | value  |
-      | defaults.crew  | main   |
-      | defaults.model | grover |
+      | path           | value    |
+      | comms.discord  | #delete  |
+      | defaults.crew  | main     |
+      | defaults.model | grover   |
     Then the log has entries matching:
       | level | event              | path           | impl    |
       | :info | :config/reloaded   | isaac.edn      |         |

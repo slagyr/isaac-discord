@@ -27,6 +27,8 @@
 
 (helper! isaac.comm.discord.discord-steps)
 
+(g/before-scenario #(log/clear-entries!))
+
 ;; Bridge the in-memory fake gateway into integrations started by the server.
 ;; factory/create passes :connect-ws! nil; inject from g when the Gateway is faked.
 (alter-var-root #'discord/make
@@ -192,7 +194,8 @@
       (:client (some-> (active-integration) discord/client))))
 
 (defn- queue-head []
-  (first (gateway/accepted-messages (active-client))))
+  (when-let [client (active-client)]
+    (first (gateway/accepted-messages client))))
 
 (defn- sent-op [op]
   (some #(when (= op (:op %)) %) @(g/get :discord-sent)))
@@ -289,7 +292,6 @@
   (ensure-discord-module-declared!))
 
 (defn discord-isaac-server-started []
-  (log/clear-entries!)
   (ensure-discord-module-declared!)
   ((requiring-resolve 'isaac.server.server-steps/server-running)))
 
@@ -422,11 +424,16 @@
     (log/clear-entries!)))
 
 (defn discord-client-disconnected []
+  (helper/await-condition
+    #(let [client (active-client)]
+       (or (nil? client) (not (gateway/running? client))))
+    10000)
   (let [client (active-client)]
     (g/should (or (nil? client)
                   (not (gateway/running? client))))))
 
 (defn discord-client-accepted-message [table]
+  (helper/await-condition #(queue-head) 10000)
   (let [message  (queue-head)
         expected (into {} (map (fn [[k v]] [k (parse-value v)]) (table-map table)))]
     (g/should-not-be-nil message)

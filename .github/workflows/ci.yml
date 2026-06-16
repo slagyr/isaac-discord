@@ -25,7 +25,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: slagyr/isaac-foundation
-          ref: 8b47fe2162db2159f60d6754b109b4f388ddc9eb
+          ref: c52d3d5beb39f14f900e8d3d279f43b179e39254
           path: isaac-foundation
 
       - uses: actions/checkout@v4
