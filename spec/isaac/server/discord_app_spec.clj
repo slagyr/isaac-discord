@@ -40,8 +40,8 @@
                      :cfg                (cfg-with-discord {:comms {:discord {:discord/token "test-token"}}})
                      :start-http-server? false})
         (sut/stop!))
-      (should= nil (:state-dir @connected))
-      (should= nil @stopped)))
+      (should= "/tmp/isaac" (:state-dir @connected))
+      (should= ::discord-client @stopped)))
 
   (it "does not connect Discord gateway on startup when no token is configured"
     (let [connected (atom false)]
@@ -75,7 +75,7 @@
           (change-source/notify-path! source "/tmp/isaac-discord/.isaac/config/isaac.edn")
           (helper/await-condition #(some? @connected) 6000)
           (sut/stop!)))
-      (should= nil (:state-dir @connected))))
+      (should= "/tmp/isaac-discord/.isaac" (:state-dir @connected))))
 
   (it "disconnects Discord gateway when token is removed via config hot-reload"
     (let [source  (change-source/memory-source "/tmp/isaac-discord/.isaac")
@@ -98,7 +98,7 @@
           (change-source/notify-path! source "/tmp/isaac-discord/.isaac/config/isaac.edn")
           (helper/await-condition #(some? @stopped))
           (sut/stop!)))
-      (should= nil @stopped)))
+      (should= ::discord-client @stopped)))
 
   (it "does not reconnect Discord gateway when token is unchanged on config hot-reload"
     (let [source        (change-source/memory-source "/tmp/isaac-discord/.isaac")
@@ -123,4 +123,4 @@
           (change-source/notify-path! source "/tmp/isaac-discord/.isaac/config/crew/main.edn")
           (helper/await-condition #(= "new" (get-in (sut/current-config) [:crew "main" :soul])))
           (sut/stop!)))
-      (should= 0 @connect-count))))
+      (should= 1 @connect-count))))
