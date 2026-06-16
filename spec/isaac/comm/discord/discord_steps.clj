@@ -289,6 +289,7 @@
   (ensure-discord-module-declared!))
 
 (defn discord-isaac-server-started []
+  (log/clear-entries!)
   (ensure-discord-module-declared!)
   ((requiring-resolve 'isaac.server.server-steps/server-running)))
 
@@ -411,7 +412,10 @@
   (g/should-not-be-nil (sent-op 1)))
 
 (defn discord-client-connected []
-  (helper/await-condition #(active-client) 5000)
+  (helper/await-condition
+    #(let [client (active-client)]
+       (and client (gateway/running? client)))
+    10000)
   (let [client (active-client)]
     (g/should-not-be-nil client)
     (g/should (gateway/running? client))
