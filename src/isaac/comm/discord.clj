@@ -186,7 +186,7 @@
         (rest/transient-response? response)  {:ok false :transient? true}
         :else                                {:ok false :transient? false})))
   api/Reconfigurable
-  (on-startup! [this slice]
+  (on-load [this slice]
     (reset! cfg slice)
     (when-let [token (:discord/token slice)]
       (when state-dir
@@ -197,7 +197,7 @@
                                   connect-ws! (assoc :connect-ws! connect-ws!)))]
           (reset! conn {:client (:client result)})))))
   (on-config-change! [this old new]
-    (when new (reset! cfg new))
+    (reset! cfg new)
     (let [old-token (:discord/token old)
           new-token (:discord/token new)
           current   @conn]
@@ -211,16 +211,15 @@
             (reset! conn {:client (:client result)}))
           (log/info :discord.client/started))
 
-        (and old-token (not new-token))
-        (when current
-          (gateway/stop! (:client current))
-          (reset! conn nil)
-          (log/info :discord.client/stopped))
-
         (and new-token current)
         (gateway/update-allow-from! (:client current)
                                     {:allow-from-users  (get-in new [:discord/allow-from :users])
-                                     :allow-from-guilds (get-in new [:discord/allow-from :guilds])})))))
+                                     :allow-from-guilds (get-in new [:discord/allow-from :guilds])}))))
+  (on-unload [_ _slice]
+    (when-let [current @conn]
+      (gateway/stop! (:client current))
+      (reset! conn nil)
+      (log/info :discord.client/stopped))))
 
 (defn discord-cfg [integration]
   (when integration @(.-cfg integration)))
