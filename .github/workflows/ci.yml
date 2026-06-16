@@ -15,30 +15,12 @@ jobs:
     runs-on: ubuntu-latest
     env:
       NO_COLOR: "1"
+      ISAAC_GIT: "1"
     steps:
       - name: Check out isaac-discord
         uses: actions/checkout@v4
         with:
           path: isaac-discord
-
-      - name: Check out split-module siblings
-        uses: actions/checkout@v4
-        with:
-          repository: slagyr/isaac-foundation
-          ref: c52d3d5beb39f14f900e8d3d279f43b179e39254
-          path: isaac-foundation
-
-      - uses: actions/checkout@v4
-        with:
-          repository: slagyr/isaac-agent
-          ref: 1afb347a438e3d8e0f711b1ad14bc03236abc269
-          path: isaac-agent
-
-      - uses: actions/checkout@v4
-        with:
-          repository: slagyr/isaac-server
-          ref: 54b5aa3512471d30bdde6e02c4d91a9a13fed7a0
-          path: isaac-server
 
       - name: Set up Java
         uses: actions/setup-java@v4
@@ -61,18 +43,15 @@ jobs:
             ~/.deps.clj
             ~/.clojure
             isaac-discord/.cpcache
-            isaac-foundation/.cpcache
-            isaac-agent/.cpcache
-            isaac-server/.cpcache
-          key: ${{ runner.os }}-clojure-discord-${{ hashFiles('isaac-discord/deps.edn', 'isaac-discord/bb.edn', 'isaac-foundation/deps.edn', 'isaac-agent/deps.edn', 'isaac-server/deps.edn') }}
+          key: ${{ runner.os }}-clojure-discord-${{ hashFiles('isaac-discord/deps.edn', 'isaac-discord/bb.edn') }}
           restore-keys: |
             ${{ runner.os }}-clojure-discord-
 
       - name: Warm dependency classpaths
         working-directory: isaac-discord
         run: |
-          clojure -P -M:dev-local:spec
-          clojure -P -M:dev-local:features
+          clojure -P -M:spec
+          clojure -P -M:features
 
       - name: Run CI (specs + features)
         working-directory: isaac-discord

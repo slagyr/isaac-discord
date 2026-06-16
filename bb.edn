@@ -4,19 +4,20 @@
 
  :tasks
  {spec     {:doc  "Run speclj specs (pass file/dir to narrow)"
-            :task (if (seq *command-line-args*)
-                    (apply shell "clojure" "-M:dev-local:spec" *command-line-args*)
-                    (shell "clojure" "-M:dev-local:spec"))}
+            :task (let [alias (if (System/getenv "ISAAC_GIT") ":spec" ":dev-local:spec")]
+                    (if (seq *command-line-args*)
+                      (apply shell "clojure" (str "-M" alias) *command-line-args*)
+                      (shell "clojure" (str "-M" alias))))}
 
   spec-jvm {:doc  "Alias for server app spec (same JVM classpath as :spec)"
-            :task (shell "clojure" "-M:dev-local:spec"
-                         "spec/isaac/server/discord_app_spec.clj")}
+            :task (let [alias (if (System/getenv "ISAAC_GIT") ":spec" ":dev-local:spec")]
+                    (apply shell "clojure" (str "-M" alias)
+                           "spec/isaac/server/discord_app_spec.clj"))}
 
   features {:doc  "Run gherclj feature specs (excludes @slow and @wip)"
-            :task (do
+            :task (let [alias (if (System/getenv "ISAAC_GIT") ":features" ":dev-local:features")]
                     (babashka.fs/delete-tree "target")
-                    (apply shell "clojure" "-M:dev-local:features"
-                      *command-line-args*))}
+                    (apply shell "clojure" (str "-M" alias) *command-line-args*))}
 
   ci       {:doc  "Run all specs and features"
             :task (do (shell "bb" "spec")
