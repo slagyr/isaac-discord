@@ -2,12 +2,15 @@
  :version "0.1.0"
  :factory isaac.module.protocol/module
 
- ;; Phase 8 of the berth epic (isaac-qqgv) moved comm contributions to
- ;; the :isaac.agent/comm berth declared by isaac.foundation.
  :isaac.server/service
  {:discord {:namespace isaac.comm.discord.service}}
 
- :isaac.agent/comm
+ ;; Comm contributions live on the :isaac.server/comm berth — the berth the
+ ;; server's [:comms] config slot composes :extra-schema from (see
+ ;; isaac-server isaac-manifest.edn :comms :dynamic-schema). Declaring under
+ ;; :isaac.agent/comm activates the comm (the factory falls back to it) but
+ ;; leaves its fields out of the composed schema, so conform strips :discord/token.
+ :isaac.server/comm
  {:discord {:namespace    isaac.comm.discord
             :extra-schema {:discord/token       {:type        :string
                                                  :validations [[:present-when? :type :discord]]
