@@ -20,6 +20,7 @@
     [isaac.logger :as log]
     [isaac.nexus :as nexus]
     [isaac.server.app :as server-app]
+    [isaac.service.registry :as service-registry]
     [isaac.spec-helper :as helper]
     [isaac.session.session-steps :as session-steps]
     [isaac.session.spec-helper :as storage]
@@ -27,7 +28,17 @@
 
 (helper! isaac.comm.discord.discord-steps)
 
-(g/before-scenario #(log/clear-entries!))
+(g/before-scenario
+  (fn []
+    ;; Full teardown between scenarios so state doesn't leak across examples
+    ;; sharing the process: stop any running server, clear the nexus, and reset
+    ;; the service registry. service-runtime/stop-all! only deregisters service
+    ;; *instances*, not the accumulated comm *registrations*, so without this a
+    ;; prior scenario's stale registrations bleed into the next one.
+    (server-app/stop!)
+    (nexus/reset!)
+    (reset! service-registry/*registry* (service-registry/fresh-registry))
+    (log/clear-entries!)))
 
 ;; Bridge the in-memory fake gateway into integrations started by the server.
 ;; factory/create passes :connect-ws! nil; inject from g when the Gateway is faked.
