@@ -462,7 +462,32 @@
             expected  (parse-value (get row-map "value"))]
         (g/should= expected actual)))))
 
+(defn discord-channels-numeric-key [table]
+  (doseq [row (:rows table)]
+    (let [row-map    (zipmap (:headers table) row)
+          channel-id (parse-long (get row-map "channel_id"))
+          session    (get row-map "session")]
+      (g/update! :server-config
+                 #(assoc-in % [:comms :discord :discord/channels channel-id] {:session session}))
+      (when-let [root (root-dir)]
+        (with-feature-fs
+          (fn []
+            (let [path     (str root "/config/isaac.edn")
+                  fs*      (mem-fs)
+                  current  (if (fs/exists? fs* path)
+                             (edn/read-string (fs/slurp fs* path))
+                             {})
+                  channels (assoc (get-in current [:comms :discord :discord/channels] {})
+                                  channel-id {:session session})
+                  updated  (assoc-in current [:comms :discord :discord/channels] channels)]
+              (fs/mkdirs fs* (fs/parent path))
+              (fs/spit fs* path (pr-str updated)))))))))
+
 ;; region ----- Routing -----
+
+(defgiven "Discord channels map has numeric key:" isaac.comm.discord.discord-steps/discord-channels-numeric-key
+  "Patches :discord/channels with a bare numeric (Long) channel id key, as EDN
+   would produce for an unquoted snowflake. Exercises tolerant channel routing.")
 
 (defgiven "the discord module is registered" isaac.comm.discord.discord-steps/discord-module-registered
   "Declares :isaac.comm.discord in the module index so config-berth

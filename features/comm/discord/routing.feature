@@ -66,6 +66,26 @@ Feature: Discord session routing
       | message | user         | hello           |
       | message | assistant    | got it          |
 
+  Scenario: per-channel session override with bare numeric channel key
+    Given the following sessions exist:
+      | name    |
+      | kitchen |
+    And Discord channels map has numeric key:
+      | channel_id          | session |
+      | 1491164414794272848 | kitchen |
+    And the following model responses are queued:
+      | model | type | content |
+      | echo  | text | got it  |
+    When Discord sends MESSAGE_CREATE:
+      | channel_id | 1491164414794272848 |
+      | guild_id   | G789                |
+      | author.id  | 123                 |
+      | content    | hello               |
+    Then session "kitchen" has transcript matching:
+      | type    | message.role | message.content |
+      | message | user         | hello           |
+      | message | assistant    | got it          |
+
   Scenario: Discord-wide crew and model apply when the channel has no override
     Given config:
       | comms.discord.crew   | marvin                    |

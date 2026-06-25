@@ -310,6 +310,36 @@
           (should client)
           (should= "discord-C999" (:session-name @captured))))))
 
+  (it "routes to a configured session when the channels map uses a bare numeric key"
+    (storage/create-session! test-dir "kitchen" {:crew "main"})
+    (let [snowflake 1491164414794272848N
+          captured   (atom nil)
+          cfg        (assoc-in base-config [:comms :discord :discord/channels]
+                               {snowflake {:session "kitchen"}})]
+      (with-redefs [loader/load-config-result (stub-config-result cfg)
+                    api/dispatch!           (fn [request]
+                                               (reset! captured (:session-key request))
+                                               {:stopReason "end_turn"})]
+        (sut/process-message! test-dir {:channel_id snowflake
+                                        :author     {:id "123"}
+                                        :content    "hello"})
+        (should= "kitchen" @captured))))
+
+  (it "replies to the correct channel when session override used a bare numeric key"
+    (let [snowflake   1491164414794272848N
+          captured    (atom nil)
+          discord-cfg {:discord/token      "test-token"
+                       :discord/channels   {snowflake {:session "kitchen"}}
+                       :discord/message-cap 2000}
+          integration (sut/->DiscordIntegration test-dir nil (atom discord-cfg) (atom nil))]
+      (with-redefs [rest/post-message! #(reset! captured %)]
+        (comm/on-turn-end integration "kitchen" {:content "hi back"})
+        (should= {:channel-id "1491164414794272848"
+                  :content    "hi back"
+                  :message-cap 2000
+                  :token       "test-token"}
+                 @captured))))
+
   (it "DiscordIntegration dispatches every Comm protocol method without AbstractMethodError"
     (let [di (sut/->DiscordIntegration "/tmp" nil (atom {:discord/token "t" :discord/message-cap 1}) (atom nil))]
       (with-redefs [rest/post-typing!         (fn [& _] nil)

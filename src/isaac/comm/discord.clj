@@ -19,9 +19,21 @@
     (some? value)    (str value)
     :else            nil))
 
+(defn- normalize-channel-key [k]
+  (cond
+    (keyword? k) (name k)
+    :else (str k)))
+
+(defn- normalize-discord-cfg [discord-cfg]
+  (if-let [channels (:discord/channels discord-cfg)]
+    (assoc discord-cfg :discord/channels
+           (into {} (map (fn [[k v]] [(normalize-channel-key k) v]) channels)))
+    discord-cfg))
+
 (defn- discord-config [cfg]
-  (merge (or (get-in cfg [:channels :discord]) {})
-         (or (get-in cfg [:comms :discord]) {})))
+  (normalize-discord-cfg
+    (merge (or (get-in cfg [:channels :discord]) {})
+           (or (get-in cfg [:comms :discord]) {}))))
 
 (defn- merge-config [base overrides]
   (cond-> base
@@ -44,9 +56,9 @@
 ;; --- Channel-based routing ---
 
 (defn- channel-config [discord-cfg channel-id]
-  (or (get-in discord-cfg [:discord/channels (keyword (str channel-id))])
-      (get-in discord-cfg [:discord/channels (str channel-id)])
-      {}))
+  (get-in (normalize-discord-cfg discord-cfg)
+          [:discord/channels (str channel-id)]
+          {}))
 
 (defn channel-session-name
   "Returns the session name for a Discord channel. Uses per-channel config override
@@ -70,11 +82,12 @@
 
 (defn- session->channel-id [discord-cfg session-name]
   (when session-name
-    (let [name (str session-name)]
+    (let [name    (str session-name)
+          channels (:discord/channels (normalize-discord-cfg discord-cfg))]
       (or (some (fn [[channel-id channel-cfg]]
                   (when (= name (:session channel-cfg))
                     (str channel-id)))
-                (get discord-cfg :discord/channels {}))
+                channels)
           (when (str/starts-with? name "discord-")
             (subs name (count "discord-")))))))
 

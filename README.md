@@ -29,10 +29,16 @@ discovers it, then configure a `:discord` comm slot:
                    :discord/message-cap 2000
                    :discord/allow-from  {:users  ["user-id-1"]
                                          :guilds ["guild-id-1"]}
-                   :discord/channels    {"channel-id-1" {:crew    "support"
-                                                         :model   "grover"
-                                                         :session "discord-support"
-                                                         :name    "#support"}}}}}
+                   :discord/channels    {"1491164414794272848" {:crew    "support"
+                                                                 :model   "grover"
+                                                                 :session "discord-support"
+                                                                 :name    "#support"}}}}}
+```
+
+Channel IDs are strings in config. Quote snowflake keys in EDN (`"1491164414794272848"`) — bare numeric keys work too but string keys are clearer:
+
+```clojure
+:discord/channels {"1491164414794272848" {:session "discord-support"}}
 ```
 
 Schema fields owned by the discord module are namespaced under `:discord/`
