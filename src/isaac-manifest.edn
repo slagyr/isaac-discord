@@ -39,4 +39,6 @@
                                                                                   :description "Session key for messages from this channel. Defaults to 'discord-<channel-id>' when omitted."}
                                                                         :name    {:type        :string
                                                                                   :description "Friendly display name; surfaced to the LLM as channel_label metadata."}}}
-                                                 :description "Per-channel routing overrides: map of Discord channel ID (string) to {:crew :model :session :name}."}}}}}
+                                                 :description "Per-channel routing overrides: map of Discord channel ID (string) to {:crew :model :session :name}."}}
+            :send-schema  {:discord/target {:type        :string
+                                            :description "Discord channel id (snowflake string) to post the outbound message to."}}}}}

@@ -1,6 +1,8 @@
 (ns isaac.comm.discord-spec
   (:require
     [cheshire.core :as json]
+    [clojure.edn :as edn]
+    [clojure.java.io :as io]
     [isaac.api :as api]
     [isaac.charge :as charge]
     [isaac.comm.discord :as sut]
@@ -30,6 +32,24 @@
     {:callback-driven? true
      :close!           (fn [] nil)
      :send-payload!    (fn [_payload] nil)}))
+
+(describe "Discord delivery record shape"
+
+  (it "declares namespaced :send-schema on the manifest"
+    (let [manifest (edn/read-string (slurp (io/resource "isaac-manifest.edn")))
+          schema   (get-in manifest [:isaac.server/comm :discord :send-schema])]
+      (should= #{:discord/target} (set (keys schema)))))
+
+  (it "send! reads :discord/target from the delivery record"
+    (let [captured    (atom nil)
+          integration (sut/->DiscordIntegration test-dir nil (atom {:discord/token "test-token"}) (atom nil))]
+      (with-redefs [rest/post-message! (fn [opts]
+                                         (reset! captured opts)
+                                         {:status 200 :body "{}"})]
+        (should= {:ok true}
+                 (comm/send! integration {:content "hello" :discord/target "C999"}))
+        (should= {:channel-id "C999" :content "hello" :message-cap nil :token "test-token"}
+                 @captured)))))
 
 (describe "Discord comm"
 

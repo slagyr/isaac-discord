@@ -84,17 +84,17 @@
     (try
       (let [response (post-message! send-opts)]
         (if (and state-dir (transient-response? response))
-          {:delivery (queue/enqueue! {:comm    :discord
-                                      :target  channel-id
-                                      :content content})
+          {:delivery (queue/enqueue! {:comm            :discord
+                                      :discord/target  channel-id
+                                      :content         content})
            :queued?  true
            :status   (:status response)}
           response))
       (catch Exception e
         (if state-dir
-          {:delivery (queue/enqueue! {:comm    :discord
-                                      :target  channel-id
-                                      :content content})
+          {:delivery (queue/enqueue! {:comm            :discord
+                                      :discord/target  channel-id
+                                      :content         content})
            :error    (.getMessage e)
            :queued?  true}
           (throw e))))))

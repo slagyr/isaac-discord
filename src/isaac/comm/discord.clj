@@ -178,7 +178,7 @@
                                       :token       (:discord/token cfg)})))))
   (send! [_ record]
     (let [dcfg     @cfg
-          response (rest/post-message! {:channel-id  (:target record)
+          response (rest/post-message! {:channel-id  (:discord/target record)
                                         :content     (:content record)
                                         :message-cap (:discord/message-cap dcfg)
                                         :token       (:discord/token dcfg)})]

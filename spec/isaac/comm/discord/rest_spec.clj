@@ -42,10 +42,10 @@
                                    :target    "C999"
                                    :content   "hi back"
                                    :token     "test-token"})
-        (should= {:comm    :discord
-                  :target  "C999"
-                  :content "hi back"}
-                 (select-keys @captured [:comm :target :content])))))
+        (should= {:comm            :discord
+                  :discord/target  "C999"
+                  :content         "hi back"}
+                 (select-keys @captured [:comm :discord/target :content])))))
 
   (it "splits a long response at newline boundaries"
     (let [captured (atom [])]
