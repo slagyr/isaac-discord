@@ -10,7 +10,7 @@
 (def intents 37377)
 
 (def ^:private resumable-close-codes #{4000 4001 4002 4003 4008})
-(def ^:private reidentify-close-codes #{1000 1001 4007 4009})
+(def ^:private reidentify-close-codes #{1000 1001 1006 4007 4009})
 
 (defn- normalize-id-set [values]
   (->> (cond
@@ -209,8 +209,8 @@
 
       :else
       (do
-        (swap! (:state client) assoc :running? false)
-        (log/info :discord.gateway/disconnected :payload payload :status status :reason reason)))))
+        (log/info :discord.gateway/disconnected :payload payload :status status :reason reason)
+        (reconnect! client :identify)))))
 
 (defn- start-reader-loop! [client transport]
   (when-not (:callback-driven? transport)

@@ -25,3 +25,10 @@ Feature: Discord Gateway reconnect
     Then the log has entries matching:
       | level | event                        |
       | :error | :discord.gateway/fatal-close |
+
+  Scenario: abnormal disconnect (1006) triggers IDENTIFY reconnect
+    When Discord closes the connection with code 1006
+    Then the Discord client sends IDENTIFY:
+      | token   | test-token |
+      | intents | 37377      |
+    And the Discord client is connected
