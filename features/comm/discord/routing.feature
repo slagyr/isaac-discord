@@ -11,8 +11,8 @@ Feature: Discord session routing
     And the Discord Gateway is faked in-memory
     And config:
       | comms.discord.discord/token             | test-token |
-      | comms.discord.discord/allow-from.users  | 123        |
-      | comms.discord.discord/allow-from.guilds | G789       |
+      | comms.discord.discord/allow-from.users  | ["123"]    |
+      | comms.discord.discord/allow-from.guilds | ["G789"]   |
       | sessions.naming-strategy        | sequential |
     And the Discord client is ready as bot "bot-default"
 
