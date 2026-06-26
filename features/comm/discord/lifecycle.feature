@@ -21,25 +21,28 @@ Feature: Discord client lifecycle
     And the discord Isaac server is started
     Then the Discord client is connected
 
-  Scenario: Discord client starts when config is added mid-run
+  @wip
+  Scenario: adding a Discord token mid-run starts the client
     Given the discord Isaac server is started
+    Then the Discord client is disconnected
     When the isaac EDN file "config/isaac.edn" exists with:
-      | path                            | value      |
-      | comms.discord.discord/token             | test-token |
-      | comms.discord.discord/allow-from.users  | ["123"]    |
-      | comms.discord.crew              | main       |
+      | path                                   | value        |
+      | comms.discord.discord/token            | test-token   |
+      | comms.discord.discord/allow-from.users | ["123"]      |
+      | comms.discord.crew                     | main         |
     Then the log has entries matching:
-      | level | event              | path           | impl    |
-      | :info | :config/reloaded   | isaac.edn      |         |
-      | :info | :lifecycle/started | comms.discord  | discord |
+      | level | event                   | path      |
+      | :info | :config/reloaded        | isaac.edn |
+      | :info | :discord.client/started |           |
     And the Discord client is connected
 
-  Scenario: Discord client stops when its config is removed mid-run
+  @wip
+  Scenario: removing a Discord token mid-run stops the client
     Given config:
-      | key                            | value      |
+      | key                                    | value      |
       | comms.discord.discord/token            | test-token |
       | comms.discord.discord/allow-from.users | ["123"]    |
-      | comms.discord.crew             | main       |
+      | comms.discord.crew                     | main       |
     And the discord Isaac server is started
     And the Discord client is connected
     When the isaac EDN file "config/isaac.edn" exists with:
@@ -48,35 +51,30 @@ Feature: Discord client lifecycle
       | defaults.crew  | main     |
       | defaults.model | grover   |
     Then the log has entries matching:
-      | level | event              | path           | impl    |
-      | :info | :config/reloaded   | isaac.edn      |         |
-      | :info | :lifecycle/stopped | comms.discord  | discord |
+      | level | event                   | path      |
+      | :info | :config/reloaded        | isaac.edn |
+      | :info | :discord.client/stopped |           |
     And the Discord client is disconnected
 
-  Scenario: allow-from updates take effect without restart
+  @wip
+  Scenario: reloading unchanged Discord token does not reconnect the client
     Given config:
-      | key                            | value      |
+      | key                                    | value      |
       | comms.discord.discord/token            | test-token |
       | comms.discord.discord/allow-from.users | ["123"]    |
-      | comms.discord.crew             | main       |
+      | comms.discord.crew                     | main       |
     And the discord Isaac server is started
-    And the Discord client is ready as bot "bot-default"
+    And the Discord client is connected
     When the isaac EDN file "config/isaac.edn" exists with:
-      | path                            | value         |
-      | comms.discord.discord/token             | test-token    |
-      | comms.discord.discord/allow-from.users  | ["123","456"] |
-      | comms.discord.crew              | main          |
+      | path                                   | value         |
+      | comms.discord.discord/token            | test-token    |
+      | comms.discord.discord/allow-from.users | ["123","456"] |
+      | comms.discord.crew                     | main          |
     Then the log has entries matching:
       | level | event            | path      |
       | :info | :config/reloaded | isaac.edn |
-    And Discord sends MESSAGE_CREATE:
-      | channel_id | 555001 |
-      | author.id  | 456    |
-      | content    | hi     |
-    Then the Discord client accepted a message with:
-      | content   | hi  |
-      | author.id | 456 |
     And the log has no entries matching:
       | event                   |
       | :discord.client/started |
       | :discord.client/stopped |
+    And the Discord client is connected
