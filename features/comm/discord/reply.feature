@@ -16,7 +16,7 @@ Feature: Discord reply via REST API
     And the Discord client is ready as bot "bot-default"
 
   Scenario: crew text response is posted back to the originating Discord channel
-    Given the following model responses are queued:
+    And the following model responses are queued:
       | model | type | content |
       | echo  | text | hi back |
     When Discord sends MESSAGE_CREATE:
@@ -30,7 +30,7 @@ Feature: Discord reply via REST API
       | body.content          | hi back        |
 
   Scenario: a non-retryable Discord REST error is logged
-    Given the following model responses are queued:
+    And the following model responses are queued:
       | model | type | content |
       | echo  | text | hi back |
     And the URL "https://discord.com/api/v10/channels/C999/messages" responds with:
@@ -44,10 +44,7 @@ Feature: Discord reply via REST API
       | event                     | channelId | status |
       | :discord.reply/http-error | C999      | 403    |
 
-  @wip
   Scenario: a reply for an unmapped session logs a warning instead of silently dropping
-    Given default Grover setup in "/test/discord-reply"
-    And the Discord Gateway is faked in-memory
     And config:
       | comms.discord.discord/token             | test-token   |
       | comms.discord.discord/allow-from.users  | cordelia     |

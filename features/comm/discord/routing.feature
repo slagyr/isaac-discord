@@ -66,10 +66,7 @@ Feature: Discord session routing
       | message | user         | hello           |
       | message | assistant    | got it          |
 
-  @wip
   Scenario: an accepted Discord message logs its resolved routing
-    Given default Grover setup in "/test/discord-routing"
-    And the Discord Gateway is faked in-memory
     And config:
       | comms.discord.discord/token                          | test-token    |
       | comms.discord.discord/allow-from.users               | cordelia      |
@@ -84,7 +81,7 @@ Feature: Discord session routing
       | models.harbor-echo.context-window                    | 32768         |
       | sessions.naming-strategy                             | sequential    |
     And the Discord client is ready as bot "harbormaster-bot"
-    Given the following model responses are queued:
+    And the following model responses are queued:
       | model | type | content                    |
       | echo  | text | Lantern trimmed and ready. |
     When Discord sends MESSAGE_CREATE:
@@ -96,17 +93,14 @@ Feature: Discord session routing
       | level  | event                  | channelId    | guildId      | session     | crew         | model       | channelOverride |
       | :debug | :discord.route/inbound | lantern-room | harbor-guild | signal-loft | harbormaster | harbor-echo | true            |
 
-  @wip
   Scenario: creating a new Discord session logs the created session name
-    Given default Grover setup in "/test/discord-routing"
-    And the Discord Gateway is faked in-memory
     And config:
       | comms.discord.discord/token             | test-token    |
       | comms.discord.discord/allow-from.users  | cordelia      |
       | comms.discord.discord/allow-from.guilds | harbor-guild  |
       | sessions.naming-strategy                | sequential    |
     And the Discord client is ready as bot "harbormaster-bot"
-    Given the following model responses are queued:
+    And the following model responses are queued:
       | model | type | content        |
       | echo  | text | Ledger opened. |
     When Discord sends MESSAGE_CREATE:
@@ -171,7 +165,7 @@ Feature: Discord session routing
       | message | assistant    | got it          |
 
   Scenario: Discord-wide crew and model apply when the channel has no override
-    Given config:
+    And config:
       | comms.discord.crew   | marvin                    |
       | comms.discord.model  | bender                    |
       | crew.marvin.model    | grover                    |
@@ -194,7 +188,7 @@ Feature: Discord session routing
       | message | assistant    | echo-bender   | got it          |
 
   Scenario: per-channel model override wins over the Discord-wide model
-    Given config:
+    And config:
       | comms.discord.crew                 | marvin                    |
       | comms.discord.model                | bender                    |
       | comms.discord.discord/channels.C999.model  | chef-bender               |
@@ -219,12 +213,12 @@ Feature: Discord session routing
       | message | user         |               | hello           |
       | message | assistant    | echo-chef     | got it          |
 
-  @wip
   Scenario: an invalid Discord config logs a routing config-load failure
-    Given default Grover setup in "/test/discord-routing"
-    And the Discord Gateway is faked in-memory
+    And config:
+      | comms.discord.discord/allow-from.users  | cordelia     |
+      | comms.discord.discord/allow-from.guilds | harbor-guild |
     And the Discord client is ready as bot "harbormaster-bot"
-    Given the isaac EDN file "config/isaac.edn" contains:
+    And the isaac EDN file "config/isaac.edn" contains:
       """
       {:comms {:discord {:discord/token "test-token"
                          :discord/allow-from {:users ["cordelia"]

@@ -10,8 +10,19 @@
   (let [drop? (set templates)]
     (vec (remove #(contains? drop? (:template %)) entries))))
 
-;; Server owns config: and default Grover setup (hot-reload for lifecycle).
-;; Session duplicates drop so crew-tool steps still resolve via unique templates.
+(defn- server-owns-config? [registry]
+  (some (fn [[ns-sym entries]]
+          (when (= ns-sym server-ns)
+            (some #(= "config:" (:template %)) entries)))
+        registry))
+
+(defn- session-drop-templates [registry]
+  (cond-> ["default Grover setup"]
+    (server-owns-config? registry) (conj "config:")))
+
+;; Server owns config: (when registered) and default Grover setup for
+;; hot-reload lifecycle scenarios. Session duplicates drop so crew-tool
+;; steps still resolve via unique templates.
 (when-let [registry-var (some-> (find-ns 'gherclj.core) ns-interns (get 'registry))]
   (swap! @registry-var
          (fn [m]
@@ -19,6 +30,6 @@
                  (map (fn [[ns-sym entries]]
                         [ns-sym (if (= ns-sym session-ns)
                                   (without-templates entries
-                                    ["config:" "default Grover setup"])
+                                                     (session-drop-templates m))
                                   entries)]))
                  m))))

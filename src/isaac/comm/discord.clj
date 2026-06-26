@@ -63,6 +63,16 @@
           (get-in (edn/read-string (fs/slurp fs* path)) [:comms :discord])))
       (catch Exception _ nil))))
 
+(defn- log-routing-config-load-failure! [state-dir channel-id]
+  (when state-dir
+    (let [path (str state-dir "/config/isaac.edn")
+          fs*  (fs/instance)]
+      (when (and fs* (fs/exists? fs* path))
+        (try
+          (edn/read-string (fs/slurp fs* path))
+          (catch Exception _
+            (log/error :discord.route/config-load-failed :channelId channel-id)))))))
+
 (defn- runtime-discord-cfg [state-dir atom-cfg]
   (normalize-discord-cfg
     (merge (or atom-cfg {})
@@ -80,6 +90,10 @@
   (get-in (normalize-discord-cfg discord-cfg)
           [:discord/channels (str channel-id)]
           {}))
+
+(defn- channel-override? [discord-cfg channel-id]
+  (contains? (:discord/channels (normalize-discord-cfg discord-cfg))
+             (str channel-id)))
 
 (defn resolve-target-channel
   "Resolve a Discord outbound target to a channel snowflake ID.
@@ -149,12 +163,16 @@
     (:guild_id payload) (assoc :guild-id (->id (:guild_id payload)))))
 
 (defn- create-session! [session-name crew-id payload]
-  (:name (api/create-session! session-name
-                              {:channel  "discord"
-                               :chatType (payload-chat-type payload)
-                               :crew     crew-id
-                               :cwd      (System/getProperty "user.home")
-                               :origin   (payload-origin payload)})))
+  (let [session (api/create-session! session-name
+                                   {:channel  "discord"
+                                    :chatType (payload-chat-type payload)
+                                    :crew     crew-id
+                                    :cwd      (System/getProperty "user.home")
+                                    :origin   (payload-origin payload)})]
+    (log/info :discord.route/session-created
+              :session (:name session)
+              :crew crew-id)
+    (:name session)))
 
 (defn- ensure-session! [session-name crew-id payload]
   (if (api/get-session session-name)
@@ -232,12 +250,13 @@
     (let [cfg     (live-discord-cfg state-dir cfg)
           content (some-> (result-content result) str/trim)]
       (when (seq content)
-        (when-let [channel-id (session->channel-id cfg session-key)]
+        (if-let [channel-id (session->channel-id cfg session-key)]
           (rest/try-send-or-enqueue! {:channel-id  channel-id
                                       :content     content
                                       :message-cap (:discord/message-cap cfg)
                                       :state-dir   state-dir
-                                      :token       (:discord/token cfg)})))))
+                                      :token       (:discord/token cfg)})
+          (log/warn :discord.reply/unmapped-session :session session-key)))))
   (send! [_ record]
     (let [dcfg        @cfg
           channel-id  (resolve-target-channel dcfg (:discord/target record))
@@ -270,9 +289,10 @@
   ([state-dir payload]
    (process-message! nil state-dir payload))
   ([comm-impl state-dir payload]
-    (let [cfg          (effective-config state-dir nil)
+    (let [channel-id   (->id (:channel_id payload))
+          _            (log-routing-config-load-failure! state-dir channel-id)
+          cfg          (effective-config state-dir nil)
           discord-cfg* (runtime-discord-cfg state-dir (discord-cfg comm-impl))
-          channel-id   (->id (:channel_id payload))
           session-name (channel-session-name discord-cfg* channel-id)
           crew-id      (channel-crew cfg discord-cfg* channel-id)
           model-ref    (channel-model discord-cfg* channel-id)
@@ -282,6 +302,13 @@
           trusted      (build-trusted-block payload discord-cfg* bot-id)
           user-prefix  (build-user-prefix payload discord-cfg* channel-id)
           full-input   (if user-prefix (str user-prefix "\n" input) input)]
+      (log/debug :discord.route/inbound
+                 :channelId channel-id
+                 :guildId (->id (:guild_id payload))
+                 :session session-name
+                 :crew crew-id
+                 :model model-ref
+                 :channelOverride (channel-override? discord-cfg* channel-id))
       (api/dispatch!
         (charge/build
           (cond-> {:session-key session-name

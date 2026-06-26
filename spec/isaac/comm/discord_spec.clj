@@ -106,6 +106,16 @@
         (comm/on-turn-end integration "discord-C999" {:content "hi back"})
         (should= {:channel-id "C999" :content "hi back" :message-cap nil :token "test-token"} @captured))))
 
+  (it "warns when a reply cannot be mapped back to a Discord channel"
+    (log/set-output! :memory)
+    (log/clear-entries!)
+    (let [integration (sut/->DiscordIntegration test-dir nil (atom {:discord/token "test-token"}) (atom nil))]
+      (comm/on-turn-end integration "signal-loft" {:content "Lantern trimmed."})
+      (let [entry (some #(when (= :discord.reply/unmapped-session (:event %)) %)
+                        (log/get-entries))]
+        (should= {:level :warn :event :discord.reply/unmapped-session :session "signal-loft"}
+                 (select-keys entry [:level :event :session])))))
+
   (it "posts a typing indicator on turn start"
     (let [captured    (atom nil)
           integration (sut/->DiscordIntegration test-dir nil (atom {:discord/token "test-token"}) (atom nil))]
@@ -397,6 +407,47 @@
                   :message-cap 2000
                   :token       "test-token"}
                  @captured))))
+
+  (it "logs resolved routing when an inbound message is accepted"
+    (log/set-output! :memory)
+    (log/clear-entries!)
+    (let [cfg         (assoc-in base-config [:comms :discord]
+                                {:discord/channels {"lantern-room" {:session "signal-loft"
+                                                                   :crew    "harbormaster"
+                                                                   :model   "harbor-echo"}}})
+          integration (sut/->DiscordIntegration test-dir nil (atom {:discord/token "test-token"}) (atom nil))]
+      (with-redefs [loader/load-config-result (stub-config-result cfg)
+                    api/dispatch!           (fn [_] {:stopReason "end_turn"})
+                    api/get-session         (constantly {:name "signal-loft"})]
+        (sut/process-message! integration test-dir {:channel_id "lantern-room"
+                                                    :guild_id   "harbor-guild"
+                                                    :author     {:id "123"}
+                                                    :content    "hello"})
+        (let [entry (some #(when (= :discord.route/inbound (:event %)) %)
+                          (log/get-entries))]
+          (should= {:level :debug :event :discord.route/inbound
+                    :channelId "lantern-room" :guildId "harbor-guild"
+                    :session "signal-loft" :crew "harbormaster"
+                    :model "harbor-echo" :channelOverride true}
+                 (select-keys entry
+                              [:level :event :channelId :guildId :session :crew :model :channelOverride]))))))
+
+  (it "logs session creation when routing creates a new session"
+    (log/set-output! :memory)
+    (log/clear-entries!)
+    (with-redefs [loader/load-config-result (stub-config-result base-config)
+                  api/dispatch!           (fn [_] {:stopReason "end_turn"})
+                  api/get-session         (constantly nil)
+                  api/create-session!     (fn [name _] {:name name})]
+      (sut/process-message! test-dir {:channel_id "lantern-room"
+                                      :guild_id   "harbor-guild"
+                                      :author     {:id "123"}
+                                      :content    "hello"})
+      (let [entry (some #(when (= :discord.route/session-created (:event %)) %)
+                        (log/get-entries))]
+        (should= {:level :info :event :discord.route/session-created
+                  :session "discord-lantern-room" :crew "main"}
+                 (select-keys entry [:level :event :session :crew])))))
 
   (it "DiscordIntegration dispatches every Comm protocol method without AbstractMethodError"
     (let [di (sut/->DiscordIntegration "/tmp" nil (atom {:discord/token "t" :discord/message-cap 1}) (atom nil))]
