@@ -19,12 +19,16 @@
 (defn- make-registration [comm-impl]
   (DiscordRegistration. comm-impl))
 
+(defn- discord-token [slice]
+  (or (:discord/token slice)
+      (get-in slice [:discord :token])))
+
 (defn- connect-registration! [reg]
   (let [comm-impl   (.-comm-impl reg)
         slice       @(.-cfg comm-impl)
         state-dir   (.-state-dir comm-impl)
         connect-ws! (.-connect-ws! comm-impl)]
-    (when (and slice (:discord/token slice) state-dir (nil? (:client (discord/client comm-impl))))
+    (when (and slice (discord-token slice) state-dir (nil? (:client (discord/client comm-impl))))
       (log/info :discord.client/started)
       (let [result (discord/connect! {:cfg-overrides {:comms {:discord slice}}
                                       :comm-impl     comm-impl
@@ -52,7 +56,7 @@
   ;; allow-from on the live client (no reconnect, so no started/stopped log).
   (when-let [comm-impl (.-comm-impl reg)]
     (let [slice   @(.-cfg comm-impl)
-          token   (:discord/token slice)
+          token   (discord-token slice)
           current (:client (discord/client comm-impl))]
       (cond
         (and token (nil? current))
@@ -77,7 +81,7 @@
       (disconnect-registration! reg))
     (reset! running?* false)))
 
-(defn- service-running? []
+(defn- server-running? []
   ;; Gate hot-reload connect/disconnect on whether the *server* is actually
   ;; booted, not on whether the Discord *service instance* is running. Discord
   ;; uses lazy module activation: a NO-token boot never activates the discord
@@ -90,15 +94,15 @@
   (server-app/running?))
 
 (defn- on-register! [reg]
-  (when (service-running?)
+  (when (server-running?)
     (reconcile-registration! reg)))
 
 (defn- on-update! [reg _old-slice _new-slice]
-  (when (service-running?)
+  (when (server-running?)
     (reconcile-registration! reg)))
 
 (defn- on-remove! [reg]
-  (when (service-running?)
+  (when (server-running?)
     (disconnect-registration! reg)))
 
 (defn register-comm! [comm-impl]
