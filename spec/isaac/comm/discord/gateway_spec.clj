@@ -4,6 +4,7 @@
     [isaac.comm.discord.gateway :as sut]
     [isaac.comm.discord.test-clock :as test-clock]
     [isaac.logger :as log]
+    [isaac.scheduler.runtime :as scheduler]
     [isaac.util.ws-client :as ws]
     [speclj.core :refer :all]))
 
@@ -28,6 +29,43 @@
       (should= 2 (:op (first @sent)))
       (should= "test-token" (get-in (first @sent) [:d :token]))
       (should= 37377 (get-in (first @sent) [:d :intents]))))
+
+  (it "cancels the prior heartbeat task when receiving a second HELLO"
+    (let [sent       (atom [])
+          callbacks* (atom nil)
+          clock      (test-clock/make)
+          sch        (:scheduler clock)
+          client     (sut/connect! {:token       "test-token"
+                                    :scheduler   sch
+                                    :connect-ws! (fake-connect! sent callbacks*)})]
+      ((:on-message @callbacks*) (json/generate-string {:op 10 :d {:heartbeat_interval 45000}}))
+      (let [first-task-id (:id (first (scheduler/list-tasks sch)))]
+        (should= 1 (count (scheduler/list-tasks sch)))
+        ((:on-message @callbacks*) (json/generate-string {:op 10 :d {:heartbeat_interval 45000}}))
+        (should= 1 (count (scheduler/list-tasks sch)))
+        (should-not= first-task-id (:id (first (scheduler/list-tasks sch))))
+        (test-clock/advance! clock 45000)
+        (should= 1 (count (filter #(= 1 (:op %)) @sent))))))
+
+  (it "keeps a single heartbeat task after reconnect"
+    (let [sent*      (atom [])
+          callbacks* (atom [])
+          clock      (test-clock/make)
+          sch        (:scheduler clock)
+          connect!   (fn [_url callbacks]
+                       (swap! callbacks* conj callbacks)
+                       {:close! (fn [] nil)
+                        :send!  (fn [payload] (swap! sent* conj payload))})
+          client     (sut/connect! {:token       "test-token"
+                                      :scheduler   sch
+                                      :connect-ws! connect!})]
+      ((:on-message (first @callbacks*)) (json/generate-string {:op 10 :d {:heartbeat_interval 45000}}))
+      ((:on-message (first @callbacks*)) (json/generate-string {:op 0 :t "READY" :s 7 :d {:session_id "abc" :user {:id "bot-default"}}}))
+      ((:on-close (first @callbacks*)) {:status-code 1006 :reason ""})
+      ((:on-message (second @callbacks*)) (json/generate-string {:op 10 :d {:heartbeat_interval 45000}}))
+      (should= 1 (count (scheduler/list-tasks sch)))
+      (test-clock/advance! clock 45000)
+      (should= 1 (count (filter #(= 1 (:op %)) @sent*)))))
 
   (it "sends HEARTBEAT when virtual time advances past the interval"
     (let [sent       (atom [])

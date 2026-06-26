@@ -80,10 +80,14 @@
 
 (defn- schedule-heartbeats! [client interval-ms]
   (when-let [sch (or (:scheduler client) (nexus/get :scheduler))]
-    (let [id (scheduler/every! sch interval-ms
-                               (fn [_] (when (:running? @(:state client))
-                                         (send-heartbeat! client))))]
-      (swap! (:state client) assoc :heartbeat-task-id id :heartbeat-scheduler sch))))
+    (let [state @(:state client)]
+      (when-let [task-id (:heartbeat-task-id state)]
+        (when-let [task-sch (:heartbeat-scheduler state)]
+          (scheduler/cancel! task-sch task-id)))
+      (let [id (scheduler/every! sch interval-ms
+                                 (fn [_] (when (:running? @(:state client))
+                                           (send-heartbeat! client))))]
+        (swap! (:state client) assoc :heartbeat-task-id id :heartbeat-scheduler sch)))))
 
 (defn- handle-hello! [client data]
   (let [interval-ms (:heartbeat_interval data)]
