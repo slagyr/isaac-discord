@@ -43,3 +43,21 @@ Feature: Discord reply via REST API
     Then the log has entries matching:
       | event                     | channelId | status |
       | :discord.reply/http-error | C999      | 403    |
+
+  @wip
+  Scenario: a reply for an unmapped session logs a warning instead of silently dropping
+    Given default Grover setup in "/test/discord-reply"
+    And the Discord Gateway is faked in-memory
+    And config:
+      | comms.discord.discord/token             | test-token   |
+      | comms.discord.discord/allow-from.users  | cordelia     |
+      | comms.discord.discord/allow-from.guilds | harbor-guild |
+    And the following sessions exist:
+      | name        | crew |
+      | signal-loft | main |
+    And the current session is "signal-loft"
+    And the Discord client is ready as bot "harbormaster-bot"
+    When the current session receives a completed turn with text "Lantern trimmed and ready."
+    Then the log has entries matching:
+      | level | event                           | session     |
+      | :warn | :discord.reply/unmapped-session | signal-loft |

@@ -66,13 +66,65 @@ Feature: Discord session routing
       | message | user         | hello           |
       | message | assistant    | got it          |
 
+  @wip
+  Scenario: an accepted Discord message logs its resolved routing
+    Given default Grover setup in "/test/discord-routing"
+    And the Discord Gateway is faked in-memory
+    And config:
+      | comms.discord.discord/token                          | test-token    |
+      | comms.discord.discord/allow-from.users               | cordelia      |
+      | comms.discord.discord/allow-from.guilds              | harbor-guild  |
+      | comms.discord.discord/channels.lantern-room.session  | signal-loft   |
+      | comms.discord.discord/channels.lantern-room.crew     | harbormaster  |
+      | comms.discord.discord/channels.lantern-room.model    | harbor-echo   |
+      | crew.harbormaster.model                              | grover        |
+      | crew.harbormaster.soul                               | You keep the lights and ledgers. |
+      | models.harbor-echo.model                             | echo          |
+      | models.harbor-echo.provider                          | grover        |
+      | models.harbor-echo.context-window                    | 32768         |
+      | sessions.naming-strategy                             | sequential    |
+    And the Discord client is ready as bot "harbormaster-bot"
+    Given the following model responses are queued:
+      | model | type | content                    |
+      | echo  | text | Lantern trimmed and ready. |
+    When Discord sends MESSAGE_CREATE:
+      | channel_id | lantern-room |
+      | guild_id   | harbor-guild |
+      | author.id  | cordelia     |
+      | content    | lamp report  |
+    Then the log has entries matching:
+      | level  | event                  | channelId    | guildId      | session     | crew         | model       | channelOverride |
+      | :debug | :discord.route/inbound | lantern-room | harbor-guild | signal-loft | harbormaster | harbor-echo | true            |
+
+  @wip
+  Scenario: creating a new Discord session logs the created session name
+    Given default Grover setup in "/test/discord-routing"
+    And the Discord Gateway is faked in-memory
+    And config:
+      | comms.discord.discord/token             | test-token    |
+      | comms.discord.discord/allow-from.users  | cordelia      |
+      | comms.discord.discord/allow-from.guilds | harbor-guild  |
+      | sessions.naming-strategy                | sequential    |
+    And the Discord client is ready as bot "harbormaster-bot"
+    Given the following model responses are queued:
+      | model | type | content        |
+      | echo  | text | Ledger opened. |
+    When Discord sends MESSAGE_CREATE:
+      | channel_id | lantern-room |
+      | guild_id   | harbor-guild |
+      | author.id  | cordelia     |
+      | content    | open the log |
+    Then the log has entries matching:
+      | level | event                         | session              | crew |
+      | :info | :discord.route/session-created | discord-lantern-room | main |
+  @wip
   Scenario: a hot-reloaded channel session override applies to both inbound routing and outbound reply
     Given the discord Isaac server is started
     When the isaac EDN file "config/isaac.edn" exists with:
       | path                                        | value            |
       | comms.discord.discord/token                 | test-token       |
-      | comms.discord.discord/allow-from.users      | ["cordelia"]     |
-      | comms.discord.discord/allow-from.guilds     | ["harbor-guild"] |
+      | comms.discord.discord/allow-from.users      | cordelia         |
+      | comms.discord.discord/allow-from.guilds     | harbor-guild     |
       | comms.discord.discord/channels.lantern-room.session | signal-loft |
       | sessions.naming-strategy                    | sequential       |
     And the config is reloaded
@@ -167,13 +219,34 @@ Feature: Discord session routing
       | message | user         |               | hello           |
       | message | assistant    | echo-chef     | got it          |
 
+  @wip
+  Scenario: an invalid Discord config logs a routing config-load failure
+    Given default Grover setup in "/test/discord-routing"
+    And the Discord Gateway is faked in-memory
+    And the Discord client is ready as bot "harbormaster-bot"
+    Given the isaac EDN file "config/isaac.edn" contains:
+      """
+      {:comms {:discord {:discord/token "test-token"
+                         :discord/allow-from {:users ["cordelia"]
+                                              :guilds ["harbor-guild"]}
+                         :discord/channels {lantern-room {:session "signal-loft"}}}}
+      """
+    When Discord sends MESSAGE_CREATE:
+      | channel_id | lantern-room |
+      | guild_id   | harbor-guild |
+      | author.id  | cordelia     |
+      | content    | lamp report  |
+    Then the log has entries matching:
+      | level  | event                            | channelId    |
+      | :error | :discord.route/config-load-failed | lantern-room |
+  @wip
   Scenario: a hot-reloaded channel crew override applies without reconnecting the Discord client
     Given the discord Isaac server is started
     When the isaac EDN file "config/isaac.edn" exists with:
       | path                                        | value                            |
       | comms.discord.discord/token                 | test-token                       |
-      | comms.discord.discord/allow-from.users      | ["cordelia"]                     |
-      | comms.discord.discord/allow-from.guilds     | ["harbor-guild"]                 |
+      | comms.discord.discord/allow-from.users      | cordelia                         |
+      | comms.discord.discord/allow-from.guilds     | harbor-guild                     |
       | comms.discord.discord/channels.lantern-room.session | signal-loft               |
       | comms.discord.discord/channels.lantern-room.crew    | harbormaster             |
       | crew.harbormaster.model                     | harbor-echo                      |
