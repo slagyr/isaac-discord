@@ -21,6 +21,14 @@ Feature: Discord client lifecycle
     And the discord Isaac server is started
     Then the Discord client is connected
 
+  # @wip: the PRODUCTION fix is in place and verified deterministic by
+  # discord_app_spec ("connects Discord gateway when token is added via config
+  # hot-reload"). This feature variant is ~50% flaky ONLY because the shared
+  # isaac-server feature harness runs two reload paths at once — the synchronous
+  # post-write drain AND the async config watcher — which race poll! on one
+  # change-source; the async path reconciles on a watcher thread and sometimes
+  # leaves the live Discord integration disconnected. Deterministic delivery
+  # tracked in isaac-snkl (isaac-server reload-harness). Re-enable once it lands.
   @wip
   Scenario: adding a Discord token mid-run starts the client
     Given the discord Isaac server is started
@@ -36,6 +44,12 @@ Feature: Discord client lifecycle
       | :info | :discord.client/started |           |
     And the Discord client is connected
 
+  # @wip: same shared-harness nondeterminism as the add-token scenario above
+  # (isaac-snkl). The production stop-on-remove logic is proven deterministic by
+  # discord_app_spec "disconnects Discord gateway when token is removed via
+  # config hot-reload". The qokc deps bump (reconcile-modules!) shifted reload
+  # timing so this file-reload variant now fails consistently rather than ~50%.
+  # Re-enable once isaac-snkl lands.
   @wip
   Scenario: removing a Discord token mid-run stops the client
     Given config:
@@ -56,7 +70,6 @@ Feature: Discord client lifecycle
       | :info | :discord.client/stopped |           |
     And the Discord client is disconnected
 
-  @wip
   Scenario: reloading unchanged Discord token does not reconnect the client
     Given config:
       | key                                    | value      |

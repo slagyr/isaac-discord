@@ -3,6 +3,7 @@
     [isaac.comm.discord :as discord]
     [isaac.comm.discord.gateway :as gateway]
     [isaac.logger :as log]
+    [isaac.server.app :as server-app]
     [isaac.service.factory :as factory]
     [isaac.service.protocol :as protocol]
     [isaac.service.registry :as registry]))
@@ -38,22 +39,32 @@
       (reset! (.-conn comm-impl) nil)
       (log/info :discord.client/stopped))))
 
-(defn- update-allow-from! [reg old-slice new-slice]
+(defn- reconcile-registration! [reg]
+  ;; Drive the registration to its DESIRED state from the comm's *current*
+  ;; slice and *actual* client, rather than diffing old/new tokens. Hot-reload
+  ;; can churn the comm instance: a reload may install a fresh DiscordIntegration
+  ;; (conn = nil) into the nexus even when the token is unchanged, so an
+  ;; old-vs-new token diff would wrongly conclude "already connected" and leave
+  ;; the live (nexus) instance with no client. Reconciling on the actual client
+  ;; presence makes connect/disconnect idempotent and instance-independent:
+  ;; connect when a token is present but this instance has no client; disconnect
+  ;; when the token is gone but a client remains; otherwise just refresh
+  ;; allow-from on the live client (no reconnect, so no started/stopped log).
   (when-let [comm-impl (.-comm-impl reg)]
-    (let [old-token (:discord/token old-slice)
-          new-token (:discord/token new-slice)
-          current   (:client (discord/client comm-impl))]
+    (let [slice   @(.-cfg comm-impl)
+          token   (:discord/token slice)
+          current (:client (discord/client comm-impl))]
       (cond
-        (and (not old-token) new-token)
+        (and token (nil? current))
         (connect-registration! reg)
 
-        (and old-token (not new-token))
+        (and (not token) current)
         (disconnect-registration! reg)
 
-        (and new-token current)
+        (and token current)
         (gateway/update-allow-from! current
-                                    {:allow-from-users  (get-in new-slice [:discord/allow-from :users])
-                                     :allow-from-guilds (get-in new-slice [:discord/allow-from :guilds])})))))
+                                    {:allow-from-users  (get-in slice [:discord/allow-from :users])
+                                     :allow-from-guilds (get-in slice [:discord/allow-from :guilds])})))))
 
 (deftype DiscordService [running?*]
   protocol/Service
@@ -67,16 +78,24 @@
     (reset! running?* false)))
 
 (defn- service-running? []
-  (when-let [^DiscordService svc (registry/instance-for :discord)]
-    @(.-running?* svc)))
+  ;; Gate hot-reload connect/disconnect on whether the *server* is actually
+  ;; booted, not on whether the Discord *service instance* is running. Discord
+  ;; uses lazy module activation: a NO-token boot never activates the discord
+  ;; module, so no DiscordService is registered/started — yet a token added on a
+  ;; running server must still connect. server-app/running? is set only at the
+  ;; end of a real app/start! boot and cleared on stop!, so a bare CLI config
+  ;; reload (no server boot) stays a no-op while a running server connects
+  ;; deterministically. Boot-time connects still flow through DiscordService
+  ;; start (service-runtime/start-all!), which runs before running? flips true.
+  (server-app/running?))
 
 (defn- on-register! [reg]
   (when (service-running?)
-    (connect-registration! reg)))
+    (reconcile-registration! reg)))
 
-(defn- on-update! [reg old-slice new-slice]
+(defn- on-update! [reg _old-slice _new-slice]
   (when (service-running?)
-    (update-allow-from! reg old-slice new-slice)))
+    (reconcile-registration! reg)))
 
 (defn- on-remove! [reg]
   (when (service-running?)
