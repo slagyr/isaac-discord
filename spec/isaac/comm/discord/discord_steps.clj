@@ -8,6 +8,7 @@
     [gherclj.core :as g :refer [defgiven defwhen defthen helper!]]
     [isaac.comm.discord :as discord]
     [isaac.comm.factory :as comm-factory]
+    [isaac.comm.protocol :as comm]
     [isaac.comm.discord.gateway :as gateway]
     [isaac.comm.discord.test-clock :as test-clock]
     [isaac.comm.registry :as comm-registry]
@@ -22,6 +23,7 @@
     [isaac.server.app :as server-app]
     [isaac.service.registry :as service-registry]
     [isaac.spec-helper :as helper]
+    [isaac.llm.providers-steps :as providers-steps]
     [isaac.session.session-steps :as session-steps]
     [isaac.session.spec-helper :as storage]
     [isaac.session.store.spi :as session-store]))
@@ -65,12 +67,19 @@
       {}))
 
 (defn- parse-value [value]
-  (cond
-    (nil? value) nil
-    (= "true" (str/lower-case value)) true
-    (= "false" (str/lower-case value)) false
-    (re-matches #"-?\d+" value) (parse-long value)
-    :else value))
+  (let [value (if (string? value) (str/trim value) value)]
+    (cond
+      (nil? value) nil
+      (= "true" (str/lower-case value)) true
+      (= "false" (str/lower-case value)) false
+      (and (string? value) (re-matches #"-?\d+" value)) (parse-long value)
+      (and (string? value)
+           (or (str/starts-with? value "[")
+               (str/starts-with? value "{")
+               (str/starts-with? value ":")
+               (str/starts-with? value "\"")))
+      (try (edn/read-string value) (catch Exception _ value))
+      :else value)))
 
 (defn- root-dir []
   (or (g/get :runtime-root-dir)
@@ -111,6 +120,15 @@
 (defn- loaded-config []
   (when (state-dir)
     (with-feature-fs #(:config (loader/load-config-result {:root (state-dir)})))))
+
+(defn- discord-slice-from-disk []
+  (when-let [dir (state-dir)]
+    (with-feature-fs
+      (fn []
+        (let [path (str dir "/config/isaac.edn")
+              fs*  (mem-fs)]
+          (when (fs/exists? fs* path)
+            (get-in (edn/read-string (fs/slurp fs* path)) [:comms :discord])))))))
 
 (defn- routing-enabled? []
   (when-let [cfg (loaded-config)]
@@ -316,8 +334,16 @@
     (ensure-grover-defaults-on-disk!)
     (ensure-discord-module-declared!)))
 
+(defn- assoc-dotted-config! [base k v]
+  (let [segments (mapv keyword (str/split (str k) #"\."))]
+    (assoc-in base segments (parse-value v))))
+
 (defn discord-configured [table]
-  (g/assoc! :discord-config (into {} (map (fn [[k v]] [k (parse-value v)]) (table-map table)))))
+  (g/update! :discord-config
+             (fn [base]
+               (reduce (fn [acc [k v]] (assoc-dotted-config! acc k v))
+                       (or base {})
+                       (seq (table-map table))))))
 
 (defn discord-connects []
   (let [cfg   (current-discord-config)
@@ -483,6 +509,35 @@
               (fs/mkdirs fs* (fs/parent path))
               (fs/spit fs* path (pr-str updated)))))))))
 
+(defn discord-outbound-comm-registered []
+  (ensure-discord-module-declared!)
+  (when-let [cfg (loaded-config)]
+    (config/dangerously-install-config! cfg "discord comm_send feature"))
+  (let [discord-cfg (merge (or (discord-slice-from-disk) {})
+                           (current-discord-config))
+        di          (discord/->DiscordIntegration (state-dir) nil (atom discord-cfg) (atom nil))]
+    (g/assoc! :discord-integration di)))
+
+(defn discord-outbound-http-request-to-url-matches [url table]
+  (providers-steps/outbound-http-request-to-url-matches url table))
+
+(defn discord-comm-send! [table]
+  (let [record (reduce (fn [acc row]
+                         (let [row-map (zipmap (:headers table) row)]
+                           (assoc acc (keyword (get row-map "path"))
+                                    (parse-value (get row-map "value")))))
+                       {}
+                       (:rows table))
+        di     (or (active-integration)
+                   (throw (ex-info "Discord comm integration not registered" {})))]
+    (when-let [cfg (loaded-config)]
+      (config/dangerously-install-config! cfg "discord feature"))
+    (reset! (.-cfg di)
+            (merge (or (discord-slice-from-disk) {})
+                   (current-discord-config)))
+    (with-http-post-stub
+      #(comm/send! di record))))
+
 ;; region ----- Routing -----
 
 (defgiven "Discord channels map has numeric key:" isaac.comm.discord.discord-steps/discord-channels-numeric-key
@@ -507,6 +562,10 @@
 
 (defgiven "Discord is configured with:" isaac.comm.discord.discord-steps/discord-configured)
 
+(defgiven "Discord outbound comm is registered" isaac.comm.discord.discord-steps/discord-outbound-comm-registered
+  "Installs a Discord Comm integration from on-disk config for outbound
+   send! scenarios without booting the full server or gateway.")
+
 (defwhen "the Discord client connects" isaac.comm.discord.discord-steps/discord-connects
   "Connects via discord/connect! when state-dir is set (routing enabled),
    else via the lower-level gateway/connect! (no routing). Injects a
@@ -526,6 +585,10 @@
   "Shortcut for the usual connect→HELLO→READY handshake. Sends HELLO
    with heartbeat_interval 45000 and a READY with a fixed session_id and
    the given bot user id. Use when the handshake isn't the focus.")
+
+(defwhen "Discord comm send! is invoked with:" isaac.comm.discord.discord-steps/discord-comm-send!
+  "Invokes Comm/send! on the active Discord integration with a delivery
+   record table (path/value rows). HTTP POSTs are stubbed and recorded.")
 
 (defwhen "Discord sends MESSAGE_CREATE:" isaac.comm.discord.discord-steps/discord-sends-message-create
   "Synthesizes an inbound MESSAGE_CREATE. Runs HTTP-post stubbing, fires
@@ -559,5 +622,10 @@
 (defthen "the Discord client accepted no messages" isaac.comm.discord.discord-steps/discord-client-accepted-no-messages)
 
 (defthen "the EDN file \"{path}\" matches:" isaac.comm.discord.discord-steps/edn-file-matches)
+
+(defthen "a Discord outbound HTTP request to {url:string} matches:"
+  isaac.comm.discord.discord-steps/discord-outbound-http-request-to-url-matches
+  "Matches a stubbed outbound HTTP request recorded by discord comm steps
+   (same DSL as provider HTTP assertions).")
 
 ;; endregion ^^^^^ Routing ^^^^^

@@ -41,4 +41,4 @@
                                                                                   :description "Friendly display name; surfaced to the LLM as channel_label metadata."}}}
                                                  :description "Per-channel routing overrides: map of Discord channel ID (string) to {:crew :model :session :name}."}}
             :send-schema  {:discord/target {:type        :string
-                                            :description "Discord channel id (snowflake string) to post the outbound message to."}}}}}
+                                            :description "Discord channel to post to: snowflake ID or the channel :name from :discord/channels."}}}}}

@@ -53,6 +53,14 @@ is the shared slot-level field and stays unqualified.
 | `:discord/allow-from`  | map    | Inbound allow-list: `:users` (snowflake strings) and/or `:guilds` (server IDs) |
 | `:discord/channels`    | map    | Optional per-channel overrides keyed by channel ID — each value can set `:crew`, `:model`, `:session`, `:name` |
 
+Outbound sends (`comm_send`, delivery worker, cron) accept `:discord/target` as either the
+channel snowflake ID or the friendly `:name` declared on that channel entry:
+
+```clojure
+:discord/channels {"123456789012345678" {:name "announcements" :crew "main"}}
+;; comm_send target "announcements" or "123456789012345678" both resolve to the same channel
+```
+
 ## Development
 
 ```bash

@@ -33,6 +33,32 @@
      :close!           (fn [] nil)
      :send-payload!    (fn [_payload] nil)}))
 
+(describe "resolve-target-channel"
+
+  (it "returns a configured channel id unchanged"
+    (should= "C999"
+             (sut/resolve-target-channel
+               {:discord/channels {"C999" {:name "announcements"}}}
+               "C999")))
+
+  (it "resolves a channel name to its configured id"
+    (should= "C999"
+             (sut/resolve-target-channel
+               {:discord/channels {"C999" {:name "announcements"}}}
+               "announcements")))
+
+  (it "resolves a channel name when channel keys are keywords"
+    (should= "C999"
+             (sut/resolve-target-channel
+               {:discord/channels {:C999 {:name "announcements"}}}
+               "announcements")))
+
+  (it "falls back to the provided target when no channel matches"
+    (should= "D111"
+             (sut/resolve-target-channel
+               {:discord/channels {"C999" {:name "announcements"}}}
+               "D111"))))
+
 (describe "Discord delivery record shape"
 
   (it "declares namespaced :send-schema on the manifest"
@@ -48,6 +74,36 @@
                                          {:status 200 :body "{}"})]
         (should= {:ok true}
                  (comm/send! integration {:content "hello" :discord/target "C999"}))
+        (should= {:channel-id "C999" :content "hello" :message-cap nil :token "test-token"}
+                 @captured))))
+
+  (it "send! resolves a configured channel name to its id"
+    (let [captured    (atom nil)
+          integration (sut/->DiscordIntegration
+                        test-dir nil
+                        (atom {:discord/token    "test-token"
+                               :discord/channels {"C999" {:name "announcements"}}})
+                        (atom nil))]
+      (with-redefs [rest/post-message! (fn [opts]
+                                         (reset! captured opts)
+                                         {:status 200 :body "{}"})]
+        (should= {:ok true}
+                 (comm/send! integration {:content "hello" :discord/target "announcements"}))
+        (should= {:channel-id "C999" :content "hello" :message-cap nil :token "test-token"}
+                 @captured))))
+
+  (it "send! accepts legacy :target before namespaced :discord/target"
+    (let [captured    (atom nil)
+          integration (sut/->DiscordIntegration
+                        test-dir nil
+                        (atom {:discord/token    "test-token"
+                               :discord/channels {"C999" {:name "announcements"}}})
+                        (atom nil))]
+      (with-redefs [rest/post-message! (fn [opts]
+                                         (reset! captured opts)
+                                         {:status 200 :body "{}"})]
+        (should= {:ok true}
+                 (comm/send! integration {:content "hello" :target "announcements"}))
         (should= {:channel-id "C999" :content "hello" :message-cap nil :token "test-token"}
                  @captured)))))
 

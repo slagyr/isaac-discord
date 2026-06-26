@@ -60,6 +60,34 @@
           [:discord/channels (str channel-id)]
           {}))
 
+(defn resolve-target-channel
+  "Resolve a Discord outbound target to a channel snowflake ID.
+   When target matches a :discord/channels key, returns it unchanged.
+   When target matches a channel :name, returns that channel's ID.
+   Otherwise returns target unchanged (assumed to already be an ID)."
+  [discord-cfg target]
+  (let [discord-cfg (normalize-discord-cfg discord-cfg)
+        target-str  (cond
+                      (nil? target) nil
+                      (keyword? target) (name target)
+                      :else (str target))
+        channels    (let [c (get discord-cfg :discord/channels)]
+                      (if (map? c) c {}))]
+    (cond
+      (str/blank? target-str) target-str
+
+      (and (map? channels)
+           (or (contains? channels target-str)
+               (contains? channels (keyword target-str))))
+      target-str
+
+      :else
+      (or (some (fn [[channel-id channel-cfg]]
+                  (when (= target-str (:name channel-cfg))
+                    (normalize-channel-key channel-id)))
+                channels)
+            target-str))))
+
 (defn channel-session-name
   "Returns the session name for a Discord channel. Uses per-channel config override
    when present, otherwise defaults to 'discord-<channel-id>'."
@@ -190,11 +218,12 @@
                                       :state-dir   state-dir
                                       :token       (:discord/token cfg)})))))
   (send! [_ record]
-    (let [dcfg     @cfg
-          response (rest/post-message! {:channel-id  (:discord/target record)
-                                        :content     (:content record)
-                                        :message-cap (:discord/message-cap dcfg)
-                                        :token       (:discord/token dcfg)})]
+    (let [dcfg        @cfg
+          channel-id  (resolve-target-channel dcfg (or (:discord/target record) (:target record)))
+          response    (rest/post-message! {:channel-id  channel-id
+                                           :content     (:content record)
+                                           :message-cap (:discord/message-cap dcfg)
+                                           :token       (:discord/token dcfg)})]
       (cond
         (< (:status response 0) 400)        {:ok true}
         (rest/transient-response? response)  {:ok false :transient? true}
