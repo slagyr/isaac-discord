@@ -90,21 +90,6 @@
         (should= {:ok true}
                  (comm/send! integration {:content "hello" :discord/target "announcements"}))
         (should= {:channel-id "C999" :content "hello" :message-cap nil :token "test-token"}
-                 @captured))))
-
-  (it "send! accepts legacy :target before namespaced :discord/target"
-    (let [captured    (atom nil)
-          integration (sut/->DiscordIntegration
-                        test-dir nil
-                        (atom {:discord/token    "test-token"
-                               :discord/channels {"C999" {:name "announcements"}}})
-                        (atom nil))]
-      (with-redefs [rest/post-message! (fn [opts]
-                                         (reset! captured opts)
-                                         {:status 200 :body "{}"})]
-        (should= {:ok true}
-                 (comm/send! integration {:content "hello" :target "announcements"}))
-        (should= {:channel-id "C999" :content "hello" :message-cap nil :token "test-token"}
                  @captured)))))
 
 (describe "Discord comm"
