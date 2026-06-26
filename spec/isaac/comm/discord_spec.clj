@@ -366,6 +366,23 @@
                                         :content    "hello"})
         (should= "kitchen" @captured))))
 
+  (it "replies to hot-reloaded channel when the live comm cfg atom is stale"
+    (let [captured    (atom nil)
+          stale-cfg   {:discord/token "test-token"}
+          fresh-cfg   (assoc-in base-config [:comms :discord]
+                                {:discord/token    "test-token"
+                                 :discord/channels {"lantern-room" {:session "signal-loft"}}})
+          integration (sut/->DiscordIntegration test-dir nil (atom stale-cfg) (atom nil))]
+      (with-redefs [loader/load-config-result (stub-config-result fresh-cfg)
+                    rest/try-send-or-enqueue! #(reset! captured %)]
+        (comm/on-turn-end integration "signal-loft" {:content "First light."})
+        (should= {:channel-id  "lantern-room"
+                  :content     "First light."
+                  :message-cap nil
+                  :state-dir   test-dir
+                  :token       "test-token"}
+                 @captured))))
+
   (it "replies to the correct channel when session override used a bare numeric key"
     (let [snowflake   1491164414794272848N
           captured    (atom nil)

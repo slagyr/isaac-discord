@@ -1,15 +1,16 @@
 (ns isaac.comm.discord
   (:require
     [cheshire.core :as json]
+    [clojure.edn :as edn]
     [clojure.string :as str]
     [isaac.api :as api]
     [isaac.charge :as charge]
     [isaac.comm.factory :as factory]
     [isaac.comm.discord.gateway :as gateway]
     [isaac.comm.discord.rest :as rest]
-
     [isaac.config.loader :as loader]
     [isaac.config.root :as root]
+    [isaac.fs :as fs]
     [isaac.logger :as log]
     [isaac.nexus :as nexus]))
 
@@ -52,6 +53,26 @@
 
 (defn config-for [state-dir overrides]
   (effective-config state-dir overrides))
+
+(defn- discord-slice-from-root [state-dir]
+  (when state-dir
+    (try
+      (let [path (str state-dir "/config/isaac.edn")
+            fs*  (fs/instance)]
+        (when (and fs* (fs/exists? fs* path))
+          (get-in (edn/read-string (fs/slurp fs* path)) [:comms :discord])))
+      (catch Exception _ nil))))
+
+(defn- runtime-discord-cfg [state-dir atom-cfg]
+  (normalize-discord-cfg
+    (merge (or atom-cfg {})
+           (discord-config (effective-config state-dir nil))
+           (or (discord-slice-from-root state-dir) {}))))
+
+(defn- live-discord-cfg [state-dir cfg-atom]
+  (if state-dir
+    (runtime-discord-cfg state-dir @cfg-atom)
+    @cfg-atom))
 
 ;; --- Channel-based routing ---
 
@@ -196,7 +217,7 @@
 (deftype DiscordIntegration [state-dir connect-ws! cfg conn]
   api/Comm
   (on-turn-start [_ session-key _]
-    (let [cfg @cfg]
+    (let [cfg (live-discord-cfg state-dir cfg)]
       (when-let [channel-id (session->channel-id cfg session-key)]
         (rest/post-typing! {:channel-id channel-id :token (:discord/token cfg)}))))
   (on-text-chunk [_ _ _] nil)
@@ -208,7 +229,7 @@
   (on-compaction-failure [_ _ _] nil)
   (on-compaction-disabled [_ _ _] nil)
   (on-turn-end [_ session-key result]
-    (let [cfg     @cfg
+    (let [cfg     (live-discord-cfg state-dir cfg)
           content (some-> (result-content result) str/trim)]
       (when (seq content)
         (when-let [channel-id (session->channel-id cfg session-key)]
@@ -250,7 +271,7 @@
    (process-message! nil state-dir payload))
   ([comm-impl state-dir payload]
     (let [cfg          (effective-config state-dir nil)
-          discord-cfg* (discord-config cfg)
+          discord-cfg* (runtime-discord-cfg state-dir (discord-cfg comm-impl))
           channel-id   (->id (:channel_id payload))
           session-name (channel-session-name discord-cfg* channel-id)
           crew-id      (channel-crew cfg discord-cfg* channel-id)

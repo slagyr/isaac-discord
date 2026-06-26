@@ -66,7 +66,6 @@ Feature: Discord session routing
       | message | user         | hello           |
       | message | assistant    | got it          |
 
-  @wip
   Scenario: a hot-reloaded channel session override applies to both inbound routing and outbound reply
     Given the discord Isaac server is started
     When the isaac EDN file "config/isaac.edn" exists with:
@@ -168,7 +167,6 @@ Feature: Discord session routing
       | message | user         |               | hello           |
       | message | assistant    | echo-chef     | got it          |
 
-  @wip
   Scenario: a hot-reloaded channel crew override applies without reconnecting the Discord client
     Given the discord Isaac server is started
     When the isaac EDN file "config/isaac.edn" exists with:
