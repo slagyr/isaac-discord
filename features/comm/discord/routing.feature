@@ -66,6 +66,39 @@ Feature: Discord session routing
       | message | user         | hello           |
       | message | assistant    | got it          |
 
+  @wip
+  Scenario: a hot-reloaded channel session override applies to both inbound routing and outbound reply
+    Given the discord Isaac server is started
+    When the isaac EDN file "config/isaac.edn" exists with:
+      | path                                        | value            |
+      | comms.discord.discord/token                 | test-token       |
+      | comms.discord.discord/allow-from.users      | ["cordelia"]     |
+      | comms.discord.discord/allow-from.guilds     | ["harbor-guild"] |
+      | comms.discord.discord/channels.lantern-room.session | signal-loft |
+      | sessions.naming-strategy                    | sequential       |
+    And the config is reloaded
+    Given the Discord client is ready as bot "harbormaster-bot"
+    And the following model responses are queued:
+      | model | type | content                  |
+      | echo  | text | First light at six bells. |
+    When Discord sends MESSAGE_CREATE:
+      | channel_id | lantern-room |
+      | guild_id   | harbor-guild |
+      | author.id  | cordelia     |
+      | content    | tide tables  |
+    Then session "signal-loft" has transcript matching:
+      | type    | message.role | message.content            |
+      | message | user         | tide tables                |
+      | message | assistant    | First light at six bells.  |
+    And an outbound HTTP request to "https://discord.com/api/v10/channels/lantern-room/messages" matches:
+      | method                | POST           |
+      | headers.Authorization | Bot test-token |
+      | body.content          | First light at six bells. |
+    And the log has no entries matching:
+      | event                   |
+      | :discord.client/started |
+      | :discord.client/stopped |
+
   Scenario: per-channel session override with bare numeric channel key
     Given the following sessions exist:
       | name    |
@@ -134,3 +167,39 @@ Feature: Discord session routing
       | type    | message.role | message.model | message.content |
       | message | user         |               | hello           |
       | message | assistant    | echo-chef     | got it          |
+
+  @wip
+  Scenario: a hot-reloaded channel crew override applies without reconnecting the Discord client
+    Given the discord Isaac server is started
+    When the isaac EDN file "config/isaac.edn" exists with:
+      | path                                        | value                            |
+      | comms.discord.discord/token                 | test-token                       |
+      | comms.discord.discord/allow-from.users      | ["cordelia"]                     |
+      | comms.discord.discord/allow-from.guilds     | ["harbor-guild"]                 |
+      | comms.discord.discord/channels.lantern-room.session | signal-loft               |
+      | comms.discord.discord/channels.lantern-room.crew    | harbormaster             |
+      | crew.harbormaster.model                     | harbor-echo                      |
+      | crew.harbormaster.soul                      | You keep the lights and ledgers. |
+      | models.harbor-echo.model                    | echo                             |
+      | models.harbor-echo.provider                 | grover                           |
+      | models.harbor-echo.context-window           | 32768                            |
+      | sessions.naming-strategy                    | sequential                       |
+    And the config is reloaded
+    Given the Discord client is ready as bot "harbormaster-bot"
+    And the following model responses are queued:
+      | model | type | content                    |
+      | echo  | text | Lantern trimmed and ready. |
+    When Discord sends MESSAGE_CREATE:
+      | channel_id | lantern-room |
+      | guild_id   | harbor-guild |
+      | author.id  | cordelia     |
+      | content    | lamp report  |
+    Then the system prompt contains "You keep the lights and ledgers."
+    And session "signal-loft" has transcript matching:
+      | type    | message.role | message.model | message.content              |
+      | message | user         |               | lamp report                  |
+      | message | assistant    | echo          | Lantern trimmed and ready.   |
+    And an outbound HTTP request to "https://discord.com/api/v10/channels/lantern-room/messages" matches:
+      | method                | POST           |
+      | headers.Authorization | Bot test-token |
+      | body.content          | Lantern trimmed and ready. |
