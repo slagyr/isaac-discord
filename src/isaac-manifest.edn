@@ -29,16 +29,34 @@
                            :discord/channels    {:type        :map
                                                  :key-spec    {:type :string}
                                                  :value-spec  {:type   :map
-                                                               :schema {:crew    {:type        :string
-                                                                                  :validations [[:nil-or? [:crew-exists?]]]
-                                                                                  :description "Crew to route messages from this channel to. Overrides the slot-level :crew."}
-                                                                        :model   {:type        :string
-                                                                                  :validations [[:nil-or? [:model-exists?]]]
-                                                                                  :description "Model to use for this channel. Overrides the slot-level :model and the crew's default model."}
+                                                               :schema {:name {:type        :string
+                                                                               :description "Friendly display name; surfaced to the LLM as channel_label metadata."}
                                                                         :session {:type        :string
-                                                                                  :description "Session key for messages from this channel. Defaults to 'discord-<channel-id>' when omitted."}
-                                                                        :name    {:type        :string
-                                                                                  :description "Friendly display name; surfaced to the LLM as channel_label metadata."}}}
-                                                 :description "Per-channel routing overrides: map of Discord channel ID (string) to {:crew :model :session :name}."}}
+                                                                                  :description "Explicit session id for messages from this channel"}
+                                                                        :session-tags {:type        :seq
+                                                                                       :description "Tags the target session must carry (AND)"
+                                                                                       :spec        {:type :keyword}}
+                                                                        :crew {:type        :string
+                                                                               :validations [[:nil-or? [:crew-exists?]]]
+                                                                               :description "Crew for session selection or creation. Overrides the slot-level :crew."}
+                                                                        :reach {:type        :keyword
+                                                                                :description "How many sessions to target (:one for Discord)"
+                                                                                :validations [[:one-of? :one :all]]}
+                                                                        :prefer {:type        :keyword
+                                                                                 :description "Multi-match tiebreak when :reach is :one"
+                                                                                 :validations [[:one-of? :recent :oldest]]}
+                                                                        :create {:type        :keyword
+                                                                                 :description "Create policy: :never, :if-missing, or :always (Discord default :if-missing)"
+                                                                                 :validations [[:one-of? :never :if-missing :always]]}
+                                                                        :with-crew {:type        :string
+                                                                                    :description "Override crew for the inbound turn"}
+                                                                        :with-model {:type        :string
+                                                                                     :validations [[:nil-or? [:model-exists?]]]
+                                                                                     :description "Override model for this channel. Overrides the slot-level :model."}
+                                                                        :with-effort {:type :int
+                                                                                      :description "Override effort for the inbound turn"}
+                                                                        :with-context-mode {:type        :keyword
+                                                                                            :description "Override context mode for the inbound turn"}}}
+                                                 :description "Per-channel session frequencies: map of Discord channel ID to selection + :with-* override keys (plus optional :name)."}}
             :send-schema  {:discord/target {:type        :string
                                             :description "Discord channel to post to: snowflake ID or the channel :name from :discord/channels."}}}}}

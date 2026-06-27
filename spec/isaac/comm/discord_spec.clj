@@ -11,6 +11,7 @@
     [isaac.config.loader :as loader]
     [isaac.fs :as fs]
     [isaac.logger :as log]
+    [isaac.nexus :as nexus]
     [isaac.session.spec-helper :as storage]
     [speclj.core :refer :all]))
 
@@ -96,7 +97,8 @@
 
   (around [it]
     (storage/with-memory-store
-      (it)))
+      (nexus/-with-nested-nexus {:fs (fs/mem-fs)}
+        (it))))
 
   (it "posts the completed turn back to the originating Discord channel"
     (let [captured    (atom nil)
@@ -163,7 +165,7 @@
     (let [captured (atom nil)
           cfg      {:comms     {:discord {:crew              "marvin"
                                           :model             "bender"
-                                          :discord/channels  {"C999" {:model "chef-bender"}}}}
+                                          :discord/channels  {"C999" {:with-model "chef-bender"}}}}
                     :defaults  {:crew "main" :model "grover"}
                     :crew      {"main"   {:model "grover" :soul "You are Isaac."}
                                 "marvin" {:model "grover" :soul "Bite my shiny metal prompts."}}
@@ -413,7 +415,7 @@
     (let [cfg         (assoc-in base-config [:comms :discord]
                                 {:discord/channels {"lantern-room" {:session "signal-loft"
                                                                    :crew    "harbormaster"
-                                                                   :model   "harbor-echo"}}})
+                                                                   :with-model "harbor-echo"}}})
           integration (sut/->DiscordIntegration test-dir nil (atom {:discord/token "test-token"}) (atom nil))]
       (with-redefs [loader/load-config-result (stub-config-result cfg)
                     api/dispatch!           (fn [_] {:stopReason "end_turn"})

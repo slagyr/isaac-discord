@@ -1,7 +1,11 @@
 (ns isaac.discord.feature-bootstrap
   "Loaded after isaac.**-steps so duplicate session-tier steps that collide
    with server-tier definitions can be dropped from the gherclj registry."
-  (:require [clojure.string :as str]))
+  (:require [clojure.string :as str]
+            [isaac.logger :as log]))
+
+;; Foundation logger defaults to a real log file; feature harnesses use mem-fs.
+(log/set-output! :memory)
 
 (def ^:private server-ns 'isaac.server.server-steps)
 (def ^:private session-ns 'isaac.session.session-steps)

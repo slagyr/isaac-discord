@@ -73,7 +73,7 @@ Feature: Discord session routing
       | comms.discord.discord/allow-from.guilds              | harbor-guild  |
       | comms.discord.discord/channels.lantern-room.session  | signal-loft   |
       | comms.discord.discord/channels.lantern-room.crew     | harbormaster  |
-      | comms.discord.discord/channels.lantern-room.model    | harbor-echo   |
+      | comms.discord.discord/channels.lantern-room.with-model | harbor-echo |
       | crew.harbormaster.model                              | grover        |
       | crew.harbormaster.soul                               | You keep the lights and ledgers. |
       | models.harbor-echo.model                             | echo          |
@@ -191,7 +191,7 @@ Feature: Discord session routing
     And config:
       | comms.discord.crew                 | marvin                    |
       | comms.discord.model                | bender                    |
-      | comms.discord.discord/channels.C999.model  | chef-bender               |
+      | comms.discord.discord/channels.C999.with-model | chef-bender           |
       | crew.marvin.model                  | grover                    |
       | crew.marvin.soul                   | Bite my shiny metal prompts. |
       | models.bender.model                | echo-bender               |

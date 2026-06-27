@@ -34,12 +34,14 @@
 
   (it "connects Discord gateway on startup when token is present"
     (let [connected (atom nil)
-          stopped   (atom nil)]
+          stopped   (atom nil)
+          mem       (fs/mem-fs)]
       (with-redefs [discord/connect!      (fn [opts] (reset! connected opts) {:client ::discord-client})
                     discord-gateway/stop! (fn [client] (reset! stopped client))]
         (sut/start! {:port               0
                      :root               "/tmp/isaac"
                      :state-dir          "/tmp/isaac"
+                     :fs                 mem
                      :cfg                (cfg-with-discord {:comms {:discord {:discord/token "test-token"}}})
                      :start-http-server? false})
         (sut/stop!))
@@ -47,11 +49,13 @@
       (should= ::discord-client @stopped)))
 
   (it "does not connect Discord gateway on startup when no token is configured"
-    (let [connected (atom false)]
+    (let [connected (atom false)
+          mem       (fs/mem-fs)]
       (with-redefs [discord/connect! (fn [_] (reset! connected true) {:client nil})]
         (sut/start! {:port               0
                      :root               "/tmp/isaac"
                      :state-dir          "/tmp/isaac"
+                     :fs                 mem
                      :cfg                (cfg-with-discord {})
                      :start-http-server? false})
         (sut/stop!))
@@ -64,7 +68,7 @@
     ;; running server connects deterministically regardless of service instance.
     (let [source    (change-source/memory-source "/tmp/isaac-discord/.isaac")
           connected (atom nil)]
-      (let [mem (fs/instance)]
+      (let [mem (fs/mem-fs)]
         (fs/mkdirs mem "/tmp/isaac-discord/.isaac/config")
         (fs/spit mem "/tmp/isaac-discord/.isaac/config/isaac.edn"
                  (config-edn {:comms {:discord {}}}))
@@ -91,7 +95,7 @@
   (it "disconnects Discord gateway when token is removed via config hot-reload"
     (let [source  (change-source/memory-source "/tmp/isaac-discord/.isaac")
           stopped (atom nil)]
-      (let [mem (fs/instance)]
+      (let [mem (fs/mem-fs)]
         (fs/mkdirs mem "/tmp/isaac-discord/.isaac/config")
         (fs/spit mem "/tmp/isaac-discord/.isaac/config/isaac.edn"
                  (config-edn {:comms {:discord {:discord/token "old-token"}}}))
@@ -114,7 +118,7 @@
   (it "does not reconnect Discord gateway when token is unchanged on config hot-reload"
     (let [source        (change-source/memory-source "/tmp/isaac-discord/.isaac")
           connect-count (atom 0)]
-      (let [mem (fs/instance)]
+      (let [mem (fs/mem-fs)]
         (fs/mkdirs mem "/tmp/isaac-discord/.isaac/config/crew")
         (fs/spit mem "/tmp/isaac-discord/.isaac/config/isaac.edn"
                  (config-edn {:comms {:discord {:discord/token "stable-token"}}}))

@@ -12,7 +12,9 @@
     [isaac.config.root :as root]
     [isaac.fs :as fs]
     [isaac.logger :as log]
-    [isaac.nexus :as nexus]))
+    [isaac.nexus :as nexus]
+    [isaac.session.frequencies :as frequencies]
+    [isaac.session.store.spi :as session-store]))
 
 (defn- ->id [value]
   (cond
@@ -123,32 +125,61 @@
                 channels)
             target-str))))
 
+(def ^:private frequency-keys
+  #{:session :session-tags :crew :reach :prefer :create
+    :with-crew :with-model :with-effort :with-context-mode})
+
+(defn- explicit-session-id [channel-cfg]
+  (cond
+    (string? (:session channel-cfg)) (:session channel-cfg)
+    (seq (:session channel-cfg))     (first (:session channel-cfg))))
+
 (defn channel-session-name
   "Returns the session name for a Discord channel. Uses per-channel config override
    when present, otherwise defaults to 'discord-<channel-id>'."
   [discord-cfg channel-id]
-  (let [channel-cfg (channel-config discord-cfg channel-id)]
-    (or (:session channel-cfg)
-        (str "discord-" channel-id))))
+  (or (explicit-session-id (channel-config discord-cfg channel-id))
+      (str "discord-" channel-id)))
 
-(defn- channel-crew [cfg discord-cfg channel-id]
-  (let [channel-cfg (channel-config discord-cfg channel-id)]
-    (or (:crew channel-cfg)
-        (:crew discord-cfg)
-        (get-in cfg [:defaults :crew])
-        "main")))
+(defn- channel-crew-id [cfg discord-cfg channel-cfg]
+  (or (:with-crew channel-cfg)
+      (:crew channel-cfg)
+      (:crew discord-cfg)
+      (get-in cfg [:defaults :crew])
+      "main"))
 
-(defn- channel-model [discord-cfg channel-id]
-  (let [channel-cfg (channel-config discord-cfg channel-id)]
-    (or (:model channel-cfg)
-        (:model discord-cfg))))
+(defn- channel-model-ref [discord-cfg channel-cfg]
+  (or (:with-model channel-cfg)
+      (:model discord-cfg)))
+
+(defn- channel->frequencies [channel-cfg channel-id]
+  (let [ch (select-keys (or channel-cfg {}) frequency-keys)]
+    (cond
+      (seq (:session-tags ch))
+      (merge {:session-tags (:session-tags ch)
+              :create       :if-missing
+              :reach        :one
+              :prefer       :recent}
+             (when (:crew ch) {:crew (:crew ch)}))
+
+      (explicit-session-id channel-cfg)
+      {:session [(explicit-session-id channel-cfg)]
+       :create  :if-missing
+       :reach   :one
+       :prefer  :recent}
+
+      :else
+      {:default-session-key (str "discord-" (str channel-id))
+       :create              :if-missing
+       :reach               :one
+       :prefer              :recent})))
 
 (defn- session->channel-id [discord-cfg session-name]
   (when session-name
-    (let [name    (str session-name)
+    (let [name     (str session-name)
           channels (:discord/channels (normalize-discord-cfg discord-cfg))]
       (or (some (fn [[channel-id channel-cfg]]
-                  (when (= name (:session channel-cfg))
+                  (when (= name (explicit-session-id channel-cfg))
                     (str channel-id)))
                 channels)
           (when (str/starts-with? name "discord-")
@@ -178,6 +209,25 @@
   (if (api/get-session session-name)
     session-name
     (create-session! session-name crew-id payload)))
+
+(defn- resolve-inbound-session!
+  [cfg channel-id channel-cfg discord-cfg payload]
+  (let [session-store* (session-store/registered-store)
+        freq           (channel->frequencies channel-cfg channel-id)
+        target         (frequencies/resolve-session-targets freq session-store*)]
+    (if (:error target)
+      (do
+        (log/warn :discord.route/no-session
+                  :channelId channel-id
+                  :message (:message target))
+        nil)
+      (let [session-key (or (:session-key target)
+                            (str "discord-" channel-id))]
+        (if (:create? target)
+          (ensure-session! session-key
+                           (channel-crew-id cfg discord-cfg channel-cfg)
+                           payload)
+          session-key)))))
 
 ;; --- Turn context ---
 
@@ -293,31 +343,32 @@
           _            (log-routing-config-load-failure! state-dir channel-id)
           cfg          (effective-config state-dir nil)
           discord-cfg* (runtime-discord-cfg state-dir (discord-cfg comm-impl))
-          session-name (channel-session-name discord-cfg* channel-id)
-          crew-id      (channel-crew cfg discord-cfg* channel-id)
-          model-ref    (channel-model discord-cfg* channel-id)
-          session-name (ensure-session! session-name crew-id payload)
+          channel-cfg  (channel-config discord-cfg* channel-id)
+          session-name (resolve-inbound-session! cfg channel-id channel-cfg discord-cfg* payload)
+          crew-id      (channel-crew-id cfg discord-cfg* channel-cfg)
+          model-ref    (channel-model-ref discord-cfg* channel-cfg)
           input        (or (:content payload) "")
           bot-id       (integration-bot-id comm-impl)
           trusted      (build-trusted-block payload discord-cfg* bot-id)
           user-prefix  (build-user-prefix payload discord-cfg* channel-id)
           full-input   (if user-prefix (str user-prefix "\n" input) input)]
-      (log/debug :discord.route/inbound
-                 :channelId channel-id
-                 :guildId (->id (:guild_id payload))
-                 :session session-name
-                 :crew crew-id
-                 :model model-ref
-                 :channelOverride (channel-override? discord-cfg* channel-id))
-      (api/dispatch!
-        (charge/build
-          (cond-> {:session-key session-name
-                   :input       full-input
-                   :state-dir   state-dir
-                   :comm        comm-impl
-                   :crew        crew-id
-                   :model-ref   model-ref}
-            trusted (assoc :soul-prepend trusted)))))))
+      (when session-name
+        (log/debug :discord.route/inbound
+                   :channelId channel-id
+                   :guildId (->id (:guild_id payload))
+                   :session session-name
+                   :crew crew-id
+                   :model model-ref
+                   :channelOverride (channel-override? discord-cfg* channel-id))
+        (api/dispatch!
+          (charge/build
+            (cond-> {:session-key session-name
+                     :input       full-input
+                     :state-dir   state-dir
+                     :comm        comm-impl
+                     :crew        crew-id
+                     :model-ref   model-ref}
+              trusted (assoc :soul-prepend trusted))))))))
 
 (defn connect!
   [{:keys [cfg-overrides comm-impl connect-ws! route-messages? scheduler state-dir url]}]
