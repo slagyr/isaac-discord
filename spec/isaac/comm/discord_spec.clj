@@ -96,8 +96,7 @@
 
   (around [it]
     (storage/with-memory-store
-      (binding [fs/*fs* (fs/mem-fs)]
-        (it))))
+      (it)))
 
   (it "posts the completed turn back to the originating Discord channel"
     (let [captured    (atom nil)
@@ -336,8 +335,8 @@
   (it "routes accepted gateway messages when config is supplied via overrides"
     (let [captured   (atom nil)
           callbacks* (atom nil)]
-      (fs/mkdirs fs/*fs* (str test-dir "/config"))
-      (fs/spit fs/*fs* (str test-dir "/config/isaac.edn")
+      (fs/mkdirs (fs/instance) (str test-dir "/config"))
+      (fs/spit (fs/instance) (str test-dir "/config/isaac.edn")
                (pr-str {:comms    {:discord {:discord/token      "test-token"
                                              :discord/allow-from {:guilds ["G789"]
                                                                   :users  ["123"]}

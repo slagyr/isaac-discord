@@ -94,7 +94,7 @@
       (some-> (g/get :runtime-root-dir) fs/parent)))
 
 (defn- mem-fs []
-  (or (g/get :mem-fs) (nexus/get :fs) fs/*fs*))
+  (or (g/get :mem-fs) (nexus/get :fs)))
 
 (defn- with-feature-fs [f]
   (nexus/-with-nested-nexus {:fs (mem-fs)}

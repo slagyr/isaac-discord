@@ -6,6 +6,7 @@
     [isaac.comm.discord.gateway :as discord-gateway]
     [isaac.config.change-source :as change-source]
     [isaac.fs :as fs]
+    [isaac.nexus :as nexus]
     [isaac.server.app :as sut]
     [isaac.spec-helper :as helper]
     [speclj.core :refer :all]))
@@ -26,6 +27,8 @@
 (describe "Server app — Discord integration"
 
   (helper/with-captured-logs)
+
+  (around [example] (nexus/-with-nested-nexus {:fs (fs/mem-fs)} (example)))
 
   (after (sut/stop!))
 
@@ -61,20 +64,20 @@
     ;; running server connects deterministically regardless of service instance.
     (let [source    (change-source/memory-source "/tmp/isaac-discord/.isaac")
           connected (atom nil)]
-      (binding [fs/*fs* (fs/mem-fs)]
-        (fs/mkdirs fs/*fs* "/tmp/isaac-discord/.isaac/config")
-        (fs/spit fs/*fs* "/tmp/isaac-discord/.isaac/config/isaac.edn"
+      (let [mem (fs/instance)]
+        (fs/mkdirs mem "/tmp/isaac-discord/.isaac/config")
+        (fs/spit mem "/tmp/isaac-discord/.isaac/config/isaac.edn"
                  (config-edn {:comms {:discord {}}}))
         (with-redefs [discord/connect!      (fn [opts] (reset! connected opts) {:client ::discord-client})
                       discord-gateway/stop! (fn [_] nil)]
           (sut/start! {:cfg                  (cfg-with-discord {:comms {:discord {}}})
                        :config-change-source source
-                       :fs                   fs/*fs*
+                       :fs                   mem
                        :root                 "/tmp/isaac-discord/.isaac"
                        :state-dir            "/tmp/isaac-discord/.isaac"
                        :port                 0
                        :start-http-server?   false})
-          (fs/spit fs/*fs* "/tmp/isaac-discord/.isaac/config/isaac.edn"
+          (fs/spit mem "/tmp/isaac-discord/.isaac/config/isaac.edn"
                    (config-edn {:comms {:discord {:discord/token "new-token"}}}))
           (change-source/notify-path! source "/tmp/isaac-discord/.isaac/config/isaac.edn")
           (helper/await-condition #(some? @connected) 6000)
@@ -88,20 +91,20 @@
   (it "disconnects Discord gateway when token is removed via config hot-reload"
     (let [source  (change-source/memory-source "/tmp/isaac-discord/.isaac")
           stopped (atom nil)]
-      (binding [fs/*fs* (fs/mem-fs)]
-        (fs/mkdirs fs/*fs* "/tmp/isaac-discord/.isaac/config")
-        (fs/spit fs/*fs* "/tmp/isaac-discord/.isaac/config/isaac.edn"
+      (let [mem (fs/instance)]
+        (fs/mkdirs mem "/tmp/isaac-discord/.isaac/config")
+        (fs/spit mem "/tmp/isaac-discord/.isaac/config/isaac.edn"
                  (config-edn {:comms {:discord {:discord/token "old-token"}}}))
         (with-redefs [discord/connect!      (fn [_] {:client ::discord-client})
                       discord-gateway/stop! (fn [client] (reset! stopped client))]
           (sut/start! {:cfg                  (cfg-with-discord {:comms {:discord {:discord/token "old-token"}}})
                        :config-change-source source
-                       :fs                   fs/*fs*
+                       :fs                   mem
                        :root                 "/tmp/isaac-discord/.isaac"
                        :state-dir            "/tmp/isaac-discord/.isaac"
                        :port                 0
                        :start-http-server?   false})
-          (fs/spit fs/*fs* "/tmp/isaac-discord/.isaac/config/isaac.edn"
+          (fs/spit mem "/tmp/isaac-discord/.isaac/config/isaac.edn"
                    (config-edn {:comms {:discord {}}}))
           (change-source/notify-path! source "/tmp/isaac-discord/.isaac/config/isaac.edn")
           (helper/await-condition #(some? @stopped))
@@ -111,22 +114,22 @@
   (it "does not reconnect Discord gateway when token is unchanged on config hot-reload"
     (let [source        (change-source/memory-source "/tmp/isaac-discord/.isaac")
           connect-count (atom 0)]
-      (binding [fs/*fs* (fs/mem-fs)]
-        (fs/mkdirs fs/*fs* "/tmp/isaac-discord/.isaac/config/crew")
-        (fs/spit fs/*fs* "/tmp/isaac-discord/.isaac/config/isaac.edn"
+      (let [mem (fs/instance)]
+        (fs/mkdirs mem "/tmp/isaac-discord/.isaac/config/crew")
+        (fs/spit mem "/tmp/isaac-discord/.isaac/config/isaac.edn"
                  (config-edn {:comms {:discord {:discord/token "stable-token"}}}))
-        (fs/spit fs/*fs* "/tmp/isaac-discord/.isaac/config/crew/main.edn"
+        (fs/spit mem "/tmp/isaac-discord/.isaac/config/crew/main.edn"
                  (pr-str {:soul "old"}))
         (with-redefs [discord/connect!      (fn [_] (swap! connect-count inc) {:client ::discord-client})
                       discord-gateway/stop! (fn [_] nil)]
           (sut/start! {:cfg                  (cfg-with-discord {:comms {:discord {:discord/token "stable-token"}}})
                        :config-change-source source
-                       :fs                   fs/*fs*
+                       :fs                   mem
                        :root                 "/tmp/isaac-discord/.isaac"
                        :state-dir            "/tmp/isaac-discord/.isaac"
                        :port                 0
                        :start-http-server?   false})
-          (fs/spit fs/*fs* "/tmp/isaac-discord/.isaac/config/crew/main.edn"
+          (fs/spit mem "/tmp/isaac-discord/.isaac/config/crew/main.edn"
                    (pr-str {:soul "new"}))
           (change-source/notify-path! source "/tmp/isaac-discord/.isaac/config/crew/main.edn")
           (helper/await-condition #(= "new" (get-in (sut/current-config) [:crew "main" :soul])))
