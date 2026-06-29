@@ -4,7 +4,8 @@ Feature: Discord message intake
   own messages, are silently ignored.
 
   Background:
-    Given the Discord Gateway is faked in-memory
+    Given an empty Isaac root at "/test"
+    And the Discord Gateway is faked in-memory
     And config:
       | comms.discord.discord/token             | test-token |
       | comms.discord.discord/allow-from.users  | 123456     |

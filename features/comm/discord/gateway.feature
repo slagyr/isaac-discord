@@ -5,7 +5,8 @@ Feature: Discord Gateway connection
   a small @slow integration scenario exercises the real WSS transport.
 
   Background:
-    Given the Discord Gateway is faked in-memory
+    Given an empty Isaac root at "/test"
+    And the Discord Gateway is faked in-memory
     And config:
       | comms.discord.discord/token | test-token |
 

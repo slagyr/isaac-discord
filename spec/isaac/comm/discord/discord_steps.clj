@@ -113,10 +113,6 @@
 (defn- config-value [cfg path]
   (get-path cfg path))
 
-(defn- current-discord-config []
-  (merge (or (get-in (g/get :server-config) [:comms :discord]) {})
-         (or (g/get :discord-config) {})))
-
 (defn- loaded-config []
   (when (state-dir)
     (with-feature-fs #(:config (loader/load-config-result {:root (state-dir)})))))
@@ -125,10 +121,18 @@
   (when-let [dir (state-dir)]
     (with-feature-fs
       (fn []
-        (let [path (str dir "/config/isaac.edn")
-              fs*  (mem-fs)]
-          (when (fs/exists? fs* path)
-            (get-in (edn/read-string (fs/slurp fs* path)) [:comms :discord])))))))
+        (try
+          (let [path (str dir "/config/isaac.edn")
+                fs*  (mem-fs)]
+            (when (fs/exists? fs* path)
+              (get-in (edn/read-string (fs/slurp fs* path)) [:comms :discord])))
+          (catch Exception _ nil))))))
+
+(defn- current-discord-config []
+  (merge (or (discord-slice-from-disk) {})
+         (or (get-in (loaded-config) [:comms :discord]) {})
+         (or (get-in (g/get :server-config) [:comms :discord]) {})
+         (or (g/get :discord-config) {})))
 
 (defn- routing-enabled? []
   (when-let [cfg (loaded-config)]

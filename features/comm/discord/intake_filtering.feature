@@ -3,7 +3,8 @@ Feature: Discord intake filtering
   at debug level so misconfigurations are diagnosable.
 
   Background:
-    Given the Discord Gateway is faked in-memory
+    Given an empty Isaac root at "/test"
+    And the Discord Gateway is faked in-memory
     And config:
       | log.output          | memory     |
       | comms.discord.discord/token | test-token |
