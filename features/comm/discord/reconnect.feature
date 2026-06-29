@@ -7,14 +7,17 @@ Feature: Discord Gateway reconnect
   by unit spec, not feature.
 
   Background:
-    Given the Discord Gateway is faked in-memory
+    Given default Grover setup in "/test/discord-reconnect"
+    And the Discord Gateway is faked in-memory
     And config:
-      | log.output        | memory     |
+      | key                         | value      |
+      | log.output                  | memory     |
       | comms.discord.discord/token | test-token |
     And the Discord client is ready as bot "bot-default"
 
   Scenario: resumable disconnect triggers RESUME with session_id and last sequence
     When Discord closes the connection with code 4000
+    And the test clock advances 1000 milliseconds
     Then the Discord client sends RESUME:
       | token      | test-token   |
       | session_id | fake-session |
@@ -28,6 +31,7 @@ Feature: Discord Gateway reconnect
 
   Scenario: abnormal disconnect (1006) triggers IDENTIFY reconnect
     When Discord closes the connection with code 1006
+    And the test clock advances 1000 milliseconds
     Then the Discord client sends IDENTIFY:
       | token   | test-token |
       | intents | 37377      |

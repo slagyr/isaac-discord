@@ -5,6 +5,8 @@
                                           :git/sha "f9be40b491ea18f1646ff15afdbd89927dcb6840"}
         io.github.slagyr/isaac-server {:git/url "https://github.com/slagyr/isaac-server.git"
                                           :git/sha "eb51cc48b8964dabb678086ac36051a86d94c03a"}
+        io.github.slagyr/isaac-agent {:git/url "https://github.com/slagyr/isaac-agent.git"
+                                      :git/sha "10093b4e62af2bec1baf92213dc50223d70b959a"}
         cheshire/cheshire                   {:mvn/version "5.13.0"}
         org.babashka/http-client            {:mvn/version "0.4.22"}
         }

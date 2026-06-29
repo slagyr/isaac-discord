@@ -4,18 +4,27 @@
 
  :tasks
  {spec     {:doc  "Run speclj specs (pass file/dir to narrow)"
-            :task (let [alias (if (System/getenv "ISAAC_GIT") ":spec" ":dev-local:spec")]
+            :task (let [dev-local? (and (not (System/getenv "ISAAC_GIT"))
+                                        (.exists (java.io.File.
+                                                   "../isaac-agent/src/isaac/session/frequencies.clj")))
+                        alias      (if dev-local? ":dev-local:spec" ":spec")]
                     (if (seq *command-line-args*)
                       (apply shell "clojure" (str "-M" alias) *command-line-args*)
                       (shell "clojure" (str "-M" alias))))}
 
   spec-jvm {:doc  "Alias for server app spec (same JVM classpath as :spec)"
-            :task (let [alias (if (System/getenv "ISAAC_GIT") ":spec" ":dev-local:spec")]
+            :task (let [dev-local? (and (not (System/getenv "ISAAC_GIT"))
+                                        (.exists (java.io.File.
+                                                   "../isaac-agent/src/isaac/session/frequencies.clj")))
+                        alias      (if dev-local? ":dev-local:spec" ":spec")]
                     (apply shell "clojure" (str "-M" alias)
                            "spec/isaac/server/discord_app_spec.clj"))}
 
   features {:doc  "Run gherclj feature specs (excludes @slow and @wip)"
-            :task (let [alias (if (System/getenv "ISAAC_GIT") ":features" ":dev-local:features")]
+            :task (let [dev-local? (and (not (System/getenv "ISAAC_GIT"))
+                                        (.exists (java.io.File.
+                                                   "../isaac-agent/src/isaac/session/frequencies.clj")))
+                        alias      (if dev-local? ":dev-local:features" ":features")]
                     (babashka.fs/delete-tree "target")
                     (apply shell "clojure" (str "-M" alias) *command-line-args*))}
 

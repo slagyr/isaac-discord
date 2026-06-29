@@ -137,9 +137,13 @@
          (seq (:models cfg)))))
 
 (defn- discord-cfg-overrides []
-  (cond-> {:comms {:discord (current-discord-config)}}
-    (seq (g/get :provider-configs))    (assoc :providers (g/get :provider-configs))
-    (get (g/get :server-config) :sessions) (assoc :sessions (get (g/get :server-config) :sessions))))
+  (let [discord (if (seq (current-discord-config))
+                  (current-discord-config)
+                  (or (discord-slice-from-disk) {}))]
+    (cond-> {}
+      (seq discord)                      (assoc :comms {:discord discord})
+      (seq (g/get :provider-configs))    (assoc :providers (g/get :provider-configs))
+      (get (g/get :server-config) :sessions) (assoc :sessions (get (g/get :server-config) :sessions)))))
 
 (defn- absolute-path [path]
   (if (str/starts-with? path "/") path (str (state-dir) "/" path)))
@@ -227,7 +231,7 @@
     (first (gateway/accepted-messages client))))
 
 (defn- sent-op [op]
-  (some #(when (= op (:op %)) %) @(g/get :discord-sent)))
+  (some #(when (= op (:op %)) %) (reverse @(g/get :discord-sent))))
 
 (defn- discord-module-coord []
   {:isaac.comm.discord {:local/root (System/getProperty "user.dir")}})
