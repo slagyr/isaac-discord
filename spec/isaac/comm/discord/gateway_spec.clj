@@ -62,6 +62,7 @@
       ((:on-message (first @callbacks*)) (json/generate-string {:op 10 :d {:heartbeat_interval 45000}}))
       ((:on-message (first @callbacks*)) (json/generate-string {:op 0 :t "READY" :s 7 :d {:session_id "abc" :user {:id "bot-default"}}}))
       ((:on-close (first @callbacks*)) {:status-code 1006 :reason ""})
+      (test-clock/advance! clock 1000)
       ((:on-message (second @callbacks*)) (json/generate-string {:op 10 :d {:heartbeat_interval 45000}}))
       (should= 1 (count (scheduler/list-tasks sch)))
       (test-clock/advance! clock 45000)
@@ -176,6 +177,64 @@
       (should= 2 (count @callbacks*))
       (should= 2 (:op (last @sent*)))
       (should= "test-token" (get-in (last @sent*) [:d :token]))))
+
+  (it "cancels heartbeat on disconnect while reconnect is pending"
+    (let [sent       (atom [])
+          callbacks* (atom nil)
+          clock      (test-clock/make)
+          sch        (:scheduler clock)
+          connect!   (fn [_url callbacks]
+                       (if (nil? @callbacks*)
+                         (do (reset! callbacks* callbacks)
+                             {:close! (fn [] nil)
+                              :send!  (fn [payload] (swap! sent conj payload))})
+                         (throw (ex-info "network down" {}))))
+          client     (sut/connect! {:token                "test-token"
+                                    :scheduler            sch
+                                    :reconnect-delay-ms   1000
+                                    :connect-ws!          connect!})]
+      ((:on-message @callbacks*) (json/generate-string {:op 10 :d {:heartbeat_interval 45000}}))
+      ((:on-message @callbacks*) (json/generate-string {:op 0 :t "READY" :s 1 :d {:session_id "abc" :user {:id "bot"}}}))
+      (should= 1 (count (scheduler/list-tasks sch)))
+      ((:on-close @callbacks*) {:reason "closed"})
+      (should= 1 (count (scheduler/list-tasks sch)))
+      (should= :discord.gateway/reconnect (:id (first (scheduler/list-tasks sch))))
+      (test-clock/advance! clock 45000)
+      (should= 0 (count (filter #(= 1 (:op %)) @sent)))))
+
+  (it "retries reconnect with backoff until connect succeeds"
+    (let [attempts*  (atom 0)
+          sent*      (atom [])
+          callbacks* (atom [])
+          clock      (test-clock/make)
+          sch        (:scheduler clock)
+          connect!   (fn [_url callbacks]
+                       (swap! attempts* inc)
+                       (if (and (> @attempts* 1) (<= @attempts* 3))
+                         (throw (ex-info "network down" {}))
+                         (do (swap! callbacks* conj callbacks)
+                             {:close! (fn [] nil)
+                              :send!  (fn [payload] (swap! sent* conj payload))})))
+          client     (sut/connect! {:token                  "test-token"
+                                    :scheduler              sch
+                                    :reconnect-delay-ms     10
+                                    :reconnect-max-delay-ms 40
+                                    :connect-ws!            connect!})]
+      (should= 1 @attempts*)
+      ((:on-message (first @callbacks*)) (json/generate-string {:op 10 :d {:heartbeat_interval 45000}}))
+      ((:on-message (first @callbacks*)) (json/generate-string {:op 0 :t "READY" :s 1 :d {:session_id "abc" :user {:id "bot"}}}))
+      ((:on-close (first @callbacks*)) {:reason "closed"})
+      (test-clock/advance! clock 10)
+      (should= 2 @attempts*)
+      (test-clock/advance! clock 20)
+      (should= 3 @attempts*)
+      (test-clock/advance! clock 40)
+      (should= 4 @attempts*)
+      (should= 2 (count @callbacks*))
+      (should= 2 (:op (last @sent*)))
+      (should (sut/running? client))
+      (should= :discord.gateway/reconnect-attempt
+               (:event (last (filter #(= :discord.gateway/reconnect-attempt (:event %)) (log/get-entries)))))))
 
   (it "logs fatal close codes without reconnecting"
     (let [sent*      (atom [])

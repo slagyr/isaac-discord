@@ -11,6 +11,9 @@
 
 (def ^:private resumable-close-codes #{4000 4001 4002 4003 4008})
 (def ^:private reidentify-close-codes #{1000 1001 1006 4007 4009})
+(def ^:private reconnect-task-id :discord.gateway/reconnect)
+(def ^:private default-reconnect-delay-ms 1000)
+(def ^:private default-reconnect-max-delay-ms 30000)
 
 (defn- normalize-id-set [values]
   (->> (cond
@@ -78,16 +81,24 @@
     (transport-send! (:transport @(:state client)) payload)
     (log/debug :discord.gateway/heartbeat :sequence (:d payload))))
 
+(defn- cancel-heartbeat! [client]
+  (when-let [task-id (:heartbeat-task-id @(:state client))]
+    (when-let [task-sch (:heartbeat-scheduler @(:state client))]
+      (scheduler/cancel! task-sch task-id))
+    (swap! (:state client) dissoc :heartbeat-task-id :heartbeat-scheduler)))
+
 (defn- schedule-heartbeats! [client interval-ms]
   (when-let [sch (or (:scheduler client) (nexus/get :scheduler))]
-    (let [state @(:state client)]
-      (when-let [task-id (:heartbeat-task-id state)]
-        (when-let [task-sch (:heartbeat-scheduler state)]
-          (scheduler/cancel! task-sch task-id)))
-      (let [id (scheduler/every! sch interval-ms
-                                 (fn [_] (when (:running? @(:state client))
-                                           (send-heartbeat! client))))]
-        (swap! (:state client) assoc :heartbeat-task-id id :heartbeat-scheduler sch)))))
+    (cancel-heartbeat! client)
+    (let [id (scheduler/every! sch interval-ms
+                               (fn [_] (when (:running? @(:state client))
+                                         (send-heartbeat! client))))]
+      (swap! (:state client) assoc :heartbeat-task-id id :heartbeat-scheduler sch))))
+
+(defn- reconnect-mode-for-close [status]
+  (if (contains? resumable-close-codes status)
+    :resume
+    :identify))
 
 (defn- handle-hello! [client data]
   (let [interval-ms (:heartbeat_interval data)]
@@ -168,7 +179,7 @@
     (catch Exception e
       (log/ex :discord.gateway/invalid-frame e :payload text))))
 
-(defn- reconnect! [client mode]
+(defn- do-reconnect! [client mode]
   (let [transport (or ((:connect-ws! client) (:url client) (:handlers client))
                       (throw (ex-info "connect failed" {:mode mode})))]
     (swap! (:state client) assoc :status :connected :transport transport)
@@ -176,6 +187,32 @@
     (case mode
       :resume (send-resume! client)
       :identify (send-identify! client))))
+
+(defn- reconnect-handler [client mode]
+  (fn [_ctx]
+    (when (:running? @(:state client))
+      (log/info :discord.gateway/reconnect-attempt :mode mode)
+      (do-reconnect! client mode))))
+
+(defn- schedule-reconnect! [client mode]
+  (when-let [sch (or (:scheduler client) (nexus/get :scheduler))]
+    (let [base-delay (max 1 (or (:reconnect-delay-ms client) default-reconnect-delay-ms))
+          max-delay  (max 1 (or (:reconnect-max-delay-ms client) default-reconnect-max-delay-ms))]
+      (scheduler/cancel! sch reconnect-task-id)
+      (scheduler/schedule!
+        sch
+        {:id             reconnect-task-id
+         :trigger        {:kind :delay :ms base-delay}
+         :handler        (reconnect-handler client mode)
+         :on-error       :retry
+         :backoff-ms     base-delay
+         :max-backoff-ms max-delay
+         :retry-attempts Long/MAX_VALUE}))))
+
+(defn- attempt-reconnect! [client mode]
+  (if-let [sch (or (:scheduler client) (nexus/get :scheduler))]
+    (schedule-reconnect! client mode)
+    (do-reconnect! client mode)))
 
 (defn- close-status [payload]
   (or (:status payload) (:code payload) (:status-code payload)))
@@ -194,27 +231,22 @@
 (defn- on-close! [client payload]
   (let [status (close-status payload)
         reason (:reason payload)]
-    (swap! (:state client) assoc :status :disconnected :disconnect payload)
+    (cancel-heartbeat! client)
+    (when-let [transport (:transport @(:state client))]
+      (transport-close! transport))
+    (swap! (:state client) assoc :status :disconnected :disconnect payload :transport nil)
     (cond
       (fatal-close? status)
       (do
         (swap! (:state client) assoc :running? false)
+        (when-let [sch (or (:scheduler client) (nexus/get :scheduler))]
+          (scheduler/cancel! sch reconnect-task-id))
         (log/error :discord.gateway/fatal-close :payload payload :status status :reason reason))
 
-      (contains? resumable-close-codes status)
-      (do
-        (log/info :discord.gateway/disconnected :payload payload :status status :reason reason)
-        (reconnect! client :resume))
-
-      (contains? reidentify-close-codes status)
-      (do
-        (log/info :discord.gateway/disconnected :payload payload :status status :reason reason)
-        (reconnect! client :identify))
-
       :else
-      (do
-        (log/info :discord.gateway/disconnected :payload payload :status status :reason reason)
-        (reconnect! client :identify)))))
+      (let [mode (reconnect-mode-for-close status)]
+        (log/info :discord.gateway/disconnected :payload payload :status status :reason reason :mode mode)
+        (attempt-reconnect! client mode)))))
 
 (defn- start-reader-loop! [client transport]
   (when-not (:callback-driven? transport)
@@ -248,7 +280,8 @@
                   (recur))))))))))
 
 (defn connect!
-  [{:keys [token url connect-ws! scheduler allow-from-users allow-from-guilds on-accepted-message!]
+  [{:keys [token url connect-ws! scheduler allow-from-users allow-from-guilds on-accepted-message!
+           reconnect-delay-ms reconnect-max-delay-ms]
     :or   {url gateway-url connect-ws! default-connect-ws!}}]
   (let [state      (atom {:status     :disconnected
                           :accepted   []
@@ -261,15 +294,17 @@
         handlers   {:on-message #(receive-text! @client* %)
                     :on-close   #(on-close! @client* %)
                     :on-error   #(log/ex :discord.gateway/error % :payload (error-payload %))}
-        client     {:token                token
-                    :url                  url
-                    :state                state
-                    :scheduler            scheduler
-                    :allow-from-users     (atom (normalize-id-set allow-from-users))
-                    :allow-from-guilds    (atom (normalize-id-set allow-from-guilds))
-                    :on-accepted-message! on-accepted-message!
-                    :handlers             handlers
-                    :connect-ws!          connect-ws!}
+        client     {:token                  token
+                    :url                    url
+                    :state                  state
+                    :scheduler              scheduler
+                    :reconnect-delay-ms     reconnect-delay-ms
+                    :reconnect-max-delay-ms reconnect-max-delay-ms
+                    :allow-from-users       (atom (normalize-id-set allow-from-users))
+                    :allow-from-guilds      (atom (normalize-id-set allow-from-guilds))
+                    :on-accepted-message!   on-accepted-message!
+                    :handlers               handlers
+                    :connect-ws!            connect-ws!}
         _          (reset! client* client)
         transport  (connect-ws! url handlers)]
     (swap! state assoc :status :connected :transport transport)
@@ -295,9 +330,9 @@
 
 (defn stop! [client]
   (swap! (:state client) assoc :running? false :status :disconnected)
-  (when-let [task-id (:heartbeat-task-id @(:state client))]
-    (when-let [sch (:heartbeat-scheduler @(:state client))]
-      (scheduler/cancel! sch task-id)))
+  (cancel-heartbeat! client)
+  (when-let [sch (or (:scheduler client) (nexus/get :scheduler))]
+    (scheduler/cancel! sch reconnect-task-id))
   (when-let [transport (:transport @(:state client))]
     (transport-close! transport))
   nil)
