@@ -62,7 +62,7 @@
         :session_id (:session-id @(:state client))
         :seq        (:sequence @(:state client))}})
 
-(declare start-reader-loop! stop!)
+(declare start-reader-loop! stop! on-close!)
 
 (defn- send-identify! [client]
   (let [payload (identify-payload (:token client))]
@@ -91,8 +91,18 @@
   (when-let [sch (or (:scheduler client) (nexus/get :scheduler))]
     (cancel-heartbeat! client)
     (let [id (scheduler/every! sch interval-ms
-                               (fn [_] (when (:running? @(:state client))
-                                         (send-heartbeat! client))))]
+                               (fn [_]
+                                 (when (:running? @(:state client))
+                                   (try
+                                     (send-heartbeat! client)
+                                     (catch Exception e
+                                       ;; The socket is dead (e.g. "Output closed") — a
+                                       ;; network drop that produced no clean close. Stop
+                                       ;; hammering it: treat the failed beat as a
+                                       ;; disconnect so the heartbeat is cancelled and a
+                                       ;; reconnect is attempted, instead of firing forever.
+                                       (log/ex :discord.gateway/heartbeat-failed e)
+                                       (on-close! client {:reason "heartbeat-send-failed"}))))))]
       (swap! (:state client) assoc :heartbeat-task-id id :heartbeat-scheduler sch))))
 
 (defn- reconnect-mode-for-close [status]

@@ -202,6 +202,39 @@
       (test-clock/advance! clock 45000)
       (should= 0 (count (filter #(= 1 (:op %)) @sent)))))
 
+  (it "cancels the heartbeat when a beat fails into a dead socket"
+    (let [sent       (atom [])
+          fail?      (atom false)
+          callbacks* (atom nil)
+          clock      (test-clock/make)
+          sch        (:scheduler clock)
+          connect!   (fn [_url callbacks]
+                       (if (nil? @callbacks*)
+                         (do (reset! callbacks* callbacks)
+                             {:close! (fn [] nil)
+                              :send!  (fn [payload]
+                                        (if @fail?
+                                          (throw (java.io.IOException. "Output closed"))
+                                          (swap! sent conj payload)))})
+                         (throw (ex-info "network down" {}))))
+          client     (sut/connect! {:token              "test-token"
+                                    :scheduler          sch
+                                    :reconnect-delay-ms 1000
+                                    :connect-ws!        connect!})]
+      ((:on-message @callbacks*) (json/generate-string {:op 10 :d {:heartbeat_interval 45000}}))
+      ((:on-message @callbacks*) (json/generate-string {:op 0 :t "READY" :s 1 :d {:session_id "abc" :user {:id "bot"}}}))
+      (should= 1 (count (scheduler/list-tasks sch)))
+      ;; the socket goes dead; the next heartbeat send fails
+      (reset! fail? true)
+      (test-clock/advance! clock 45000)
+      ;; the failed beat is treated as a disconnect: heartbeat cancelled, only
+      ;; the reconnect task remains — no more hammering the dead socket.
+      (should= [:discord.gateway/reconnect] (mapv :id (scheduler/list-tasks sch)))
+      (let [beats-before (count (filter #(= 1 (:op %)) @sent))]
+        (test-clock/advance! clock 45000)
+        (test-clock/advance! clock 45000)
+        (should= beats-before (count (filter #(= 1 (:op %)) @sent))))))
+
   (it "retries reconnect with backoff until connect succeeds"
     (let [attempts*  (atom 0)
           sent*      (atom [])
