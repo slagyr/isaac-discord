@@ -3,7 +3,10 @@
  :deps {com.cleancoders.c3kit/apron {:mvn/version "3.0.0"}}
 
  :tasks
- {spec     {:doc  "Run speclj specs (pass file/dir to narrow)"
+ {config-bypass-lint {:doc "Fail on raw config slurp/read outside isaac.config.*"
+                      :task (shell "bb" "config_bypass_lint.bb" "src")}
+
+  spec     {:doc  "Run speclj specs (pass file/dir to narrow)"
             :task (let [dev-local? (and (not (System/getenv "ISAAC_GIT"))
                                         (.exists (java.io.File.
                                                    "../isaac-agent/src/isaac/session/frequencies.clj")))
@@ -29,7 +32,8 @@
                     (apply shell "clojure" (str "-M" alias) *command-line-args*))}
 
   ci       {:doc  "Run all specs and features"
-            :task (do (shell "bb" "spec")
+            :task (do (run 'config-bypass-lint)
+                      (shell "bb" "spec")
                       (shell "bb" "features"))}
 
   clean    {:doc  "Remove generated and test artifacts"
