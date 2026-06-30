@@ -308,7 +308,7 @@
                                       :token       (:discord/token cfg)})
           (log/warn :discord.reply/unmapped-session :session session-key)))))
   (send! [_ record]
-    (let [dcfg        @cfg
+    (let [dcfg        (live-discord-cfg state-dir cfg)
           channel-id  (resolve-target-channel dcfg (:discord/target record))
           response    (rest/post-message! {:channel-id  channel-id
                                            :content     (:content record)
