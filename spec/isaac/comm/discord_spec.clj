@@ -8,6 +8,7 @@
     [isaac.comm.discord :as sut]
     [isaac.comm.discord.rest :as rest]
     [isaac.comm.protocol :as comm]
+    [isaac.config.api :as config]
     [isaac.config.loader :as loader]
     [isaac.fs :as fs]
     [isaac.logger :as log]
@@ -95,7 +96,25 @@
           (should= {:ok true}
                    (comm/send! integration {:content "hello" :discord/target "announcements"}))
           (should= {:channel-id "C999" :content "hello" :message-cap nil :token "test-token"}
-                   @captured))))))
+                   @captured))))
+
+  (it "send! resolves ${VAR} discord/token through the foundation config loader"
+    (let [captured    (atom nil)
+          integration (sut/->DiscordIntegration test-dir nil (atom {}) (atom nil))]
+      (nexus/-with-nested-nexus {:fs (fs/mem-fs)}
+        (fs/mkdirs (fs/instance) (str test-dir "/config"))
+        (fs/spit (fs/instance) (str test-dir "/config/isaac.edn")
+                 (pr-str {:comms {:discord {:discord/token "${DISCORD_BOT_TOKEN}"}}}))
+        (config/set-env-override! "DISCORD_BOT_TOKEN" "resolved-live-token")
+        (try
+          (with-redefs [rest/post-message! (fn [opts]
+                                             (reset! captured opts)
+                                             {:status 200 :body "{}"})]
+            (should= {:ok true}
+                     (comm/send! integration {:content "hello" :discord/target "C999"}))
+            (should= {:channel-id "C999" :content "hello" :message-cap nil :token "resolved-live-token"}
+                     @captured))
+          (finally (config/clear-env-overrides!))))))))
 
 (describe "Discord comm"
 

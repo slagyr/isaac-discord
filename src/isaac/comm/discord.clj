@@ -56,15 +56,6 @@
 (defn config-for [state-dir overrides]
   (effective-config state-dir overrides))
 
-(defn- discord-slice-from-root [state-dir]
-  (when state-dir
-    (try
-      (let [path (str state-dir "/config/isaac.edn")
-            fs*  (fs/instance)]
-        (when (and fs* (fs/exists? fs* path))
-          (get-in (edn/read-string (fs/slurp fs* path)) [:comms :discord])))
-      (catch Exception _ nil))))
-
 (defn- log-routing-config-load-failure! [state-dir channel-id]
   (when state-dir
     (let [path (str state-dir "/config/isaac.edn")
@@ -78,8 +69,7 @@
 (defn- runtime-discord-cfg [state-dir atom-cfg]
   (normalize-discord-cfg
     (merge (or atom-cfg {})
-           (discord-config (effective-config state-dir nil))
-           (or (discord-slice-from-root state-dir) {}))))
+           (discord-config (effective-config state-dir nil)))))
 
 (defn- live-discord-cfg [state-dir cfg-atom]
   (if state-dir
