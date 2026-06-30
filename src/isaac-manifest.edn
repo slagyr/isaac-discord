@@ -1,5 +1,5 @@
 {:id      :isaac.comm.discord
- :version "0.1.2"
+ :version "0.1.3"
  :factory isaac.module.protocol/module
 
  :isaac.server/service

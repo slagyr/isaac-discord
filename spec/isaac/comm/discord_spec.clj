@@ -70,13 +70,15 @@
   (it "send! reads :discord/target from the delivery record"
     (let [captured    (atom nil)
           integration (sut/->DiscordIntegration test-dir nil (atom {:discord/token "test-token"}) (atom nil))]
-      (with-redefs [rest/post-message! (fn [opts]
-                                         (reset! captured opts)
-                                         {:status 200 :body "{}"})]
-        (should= {:ok true}
-                 (comm/send! integration {:content "hello" :discord/target "C999"}))
-        (should= {:channel-id "C999" :content "hello" :message-cap nil :token "test-token"}
-                 @captured))))
+      (nexus/-with-nested-nexus {:fs (fs/mem-fs)}
+        (with-redefs [loader/load-config-result (stub-config-result {})
+                      rest/post-message!       (fn [opts]
+                                                 (reset! captured opts)
+                                                 {:status 200 :body "{}"})]
+          (should= {:ok true}
+                   (comm/send! integration {:content "hello" :discord/target "C999"}))
+          (should= {:channel-id "C999" :content "hello" :message-cap nil :token "test-token"}
+                   @captured)))))
 
   (it "send! resolves a configured channel name to its id"
     (let [captured    (atom nil)
@@ -85,13 +87,15 @@
                         (atom {:discord/token    "test-token"
                                :discord/channels {"C999" {:name "announcements"}}})
                         (atom nil))]
-      (with-redefs [rest/post-message! (fn [opts]
-                                         (reset! captured opts)
-                                         {:status 200 :body "{}"})]
-        (should= {:ok true}
-                 (comm/send! integration {:content "hello" :discord/target "announcements"}))
-        (should= {:channel-id "C999" :content "hello" :message-cap nil :token "test-token"}
-                 @captured)))))
+      (nexus/-with-nested-nexus {:fs (fs/mem-fs)}
+        (with-redefs [loader/load-config-result (stub-config-result {})
+                      rest/post-message!       (fn [opts]
+                                                 (reset! captured opts)
+                                                 {:status 200 :body "{}"})]
+          (should= {:ok true}
+                   (comm/send! integration {:content "hello" :discord/target "announcements"}))
+          (should= {:channel-id "C999" :content "hello" :message-cap nil :token "test-token"}
+                   @captured))))))
 
 (describe "Discord comm"
 

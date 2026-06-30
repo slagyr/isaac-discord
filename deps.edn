@@ -51,6 +51,7 @@
                                                                 :git/sha "6ad519db72c964215e65e7aa969413592b5e8ab2"
                                                                 :deps/root "spec"}}
          :main-opts   ["-m" "speclj.main" "-c"
+                       "spec/isaac/module_activation_spec.clj"
                        "spec/isaac/comm/discord_spec.clj"
                        "spec/isaac/comm/discord/gateway_spec.clj"
                        "spec/isaac/comm/discord/rest_spec.clj"
