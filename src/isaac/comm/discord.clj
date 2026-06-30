@@ -1,7 +1,6 @@
 (ns isaac.comm.discord
   (:require
     [cheshire.core :as json]
-    [clojure.edn :as edn]
     [clojure.string :as str]
     [isaac.api :as api]
     [isaac.charge :as charge]
@@ -58,13 +57,8 @@
 
 (defn- log-routing-config-load-failure! [state-dir channel-id]
   (when state-dir
-    (let [path (str state-dir "/config/isaac.edn")
-          fs*  (fs/instance)]
-      (when (and fs* (fs/exists? fs* path))
-        (try
-          (edn/read-string (fs/slurp fs* path))
-          (catch Exception _
-            (log/error :discord.route/config-load-failed :channelId channel-id)))))))
+    (when (seq (:errors (loader/load-config-result {:root state-dir})))
+      (log/error :discord.route/config-load-failed :channelId channel-id))))
 
 (defn- runtime-discord-cfg [state-dir atom-cfg]
   (normalize-discord-cfg
