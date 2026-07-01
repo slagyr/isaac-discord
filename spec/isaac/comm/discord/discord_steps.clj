@@ -118,7 +118,16 @@
     (with-feature-fs #(:config (loader/load-config-result {:root (state-dir)})))))
 
 (defn- discord-slice-from-disk []
-  (get-in (loaded-config) [:comms :discord]))
+  (or (get-in (loaded-config) [:comms :discord])
+      (when-let [dir (state-dir)]
+        (with-feature-fs
+          (fn []
+            (try
+              (let [path (str dir "/config/isaac.edn")
+                    fs*  (mem-fs)]
+                (when (fs/exists? fs* path)
+                  (get-in (edn/read-string (fs/slurp fs* path)) [:comms :discord])))
+              (catch Exception _ nil)))))))
 
 (defn- current-discord-config []
   (merge (or (discord-slice-from-disk) {})

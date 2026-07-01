@@ -180,6 +180,25 @@
       (should= "abc" (get-in (last @sent*) [:d :session_id]))
       (should= 7 (get-in (last @sent*) [:d :seq]))))
 
+  (it "reconnects via scheduler and sends RESUME with token"
+    (let [sent*      (atom [])
+          callbacks* (atom nil)
+          clock      (test-clock/make)
+          connect!   (fn [_url callbacks]
+                       (reset! callbacks* callbacks)
+                       {:callback-driven? true
+                        :close!           (fn [] nil)
+                        :send-payload!    (fn [payload] (swap! sent* conj payload))})
+          client     (sut/connect! {:token       "test-token"
+                                    :scheduler   (:scheduler clock)
+                                    :connect-ws! connect!})]
+      ((:on-message @callbacks*) (json/generate-string {:op 10 :d {:heartbeat_interval 45000}}))
+      ((:on-message @callbacks*) (json/generate-string {:op 0 :t "READY" :s 1 :d {:session_id "fake-session" :user {:id "bot-default"}}}))
+      ((:on-close @callbacks*) {:status 4000 :reason "test-close"})
+      (test-clock/advance! clock 1000)
+      (should= 6 (:op (last @sent*)))
+      (should= "test-token" (get-in (last @sent*) [:d :token]))))
+
   (it "reconnects and sends IDENTIFY for a non-resumable close code"
     (let [sent*      (atom [])
           callbacks* (atom [])

@@ -7,6 +7,7 @@
     [isaac.charge :as charge]
     [isaac.comm.discord :as sut]
     [isaac.comm.discord.rest :as rest]
+    [isaac.comm.discord.test-clock :as test-clock]
     [isaac.comm.protocol :as comm]
     [isaac.config.api :as config]
     [isaac.config.loader :as loader]
@@ -28,12 +29,13 @@
    :providers {"grover" {:api "grover"}}
    :sessions  {:naming-strategy :sequential}})
 
-(defn- fake-connect! [callbacks*]
+(defn- fake-connect! [callbacks* & [sent*]]
   (fn [_url callbacks]
     (reset! callbacks* callbacks)
     {:callback-driven? true
      :close!           (fn [] nil)
-     :send-payload!    (fn [_payload] nil)}))
+     :send-payload!    (fn [payload]
+                         (when sent* (swap! sent* conj payload)))}))
 
 (describe "resolve-target-channel"
 
@@ -346,6 +348,24 @@
                (->> @log/captured-logs
                     (filter #(= :discord.gateway/error (:event %)))
                     (mapv #(select-keys % [:level :event :ex-class :error-message :payload]))))))
+
+  (it "reconnects via scheduler with token from config"
+    (let [sent*      (atom [])
+          callbacks* (atom nil)
+          clock      (test-clock/make)
+          cfg        (assoc-in base-config [:comms :discord] {:discord/token "test-token"})]
+      (with-redefs [loader/load-config-result (stub-config-result cfg)]
+        (let [{:keys [client]} (sut/connect! {:state-dir       test-dir
+                                              :scheduler       (:scheduler clock)
+                                              :route-messages? true
+                                              :connect-ws!     (fake-connect! callbacks* sent*)})]
+          (should= "test-token" (:token client))
+          ((:on-message @callbacks*) (json/generate-string {:op 10 :d {:heartbeat_interval 45000}}))
+          ((:on-message @callbacks*) (json/generate-string {:op 0 :t "READY" :s 1 :d {:session_id "fake-session" :user {:id "bot"}}}))
+          ((:on-close @callbacks*) {:status 4000 :reason "test-close"})
+          (test-clock/advance! clock 1000)
+          (should= 6 (:op (last @sent*)))
+          (should= "test-token" (get-in (last @sent*) [:d :token]))))))
 
   (it "stores websocket close payload from callback-driven transports"
     (let [callbacks* (atom nil)]
