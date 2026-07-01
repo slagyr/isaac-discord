@@ -11,8 +11,22 @@
 (defn- fake-connect! [sent callbacks*]
   (fn [_url callbacks]
     (reset! callbacks* callbacks)
-    {:close! (fn [] nil)
-     :send!  (fn [payload] (swap! sent conj payload))}))
+    {:callback-driven? true
+     :close!           (fn [] nil)
+     :send!            (fn [payload] (swap! sent conj payload))}))
+
+(defn- log-events []
+  (set (map :event (log/get-entries))))
+
+(defn- close-and-reconnect-logged? []
+  (let [events (log-events)]
+    (and (some events #{:discord.gateway/disconnected
+                         :discord.gateway/heartbeat-ack-timeout
+                         :discord.gateway/reconnect-requested
+                         :discord.gateway/invalid-session
+                         :discord.gateway/heartbeat-failed
+                         :discord.gateway/heartbeat-cancelled})
+         (contains? events :discord.gateway/reconnect-attempt))))
 
 (describe "Discord gateway"
 
@@ -54,7 +68,8 @@
           sch        (:scheduler clock)
           connect!   (fn [_url callbacks]
                        (swap! callbacks* conj callbacks)
-                       {:close! (fn [] nil)
+                       {:callback-driven? true
+                        :close!           (fn [] nil)
                         :send!  (fn [payload] (swap! sent* conj payload))})
           client     (sut/connect! {:token       "test-token"
                                       :scheduler   sch
@@ -116,7 +131,8 @@
           callbacks* (atom [])
           connect!   (fn [_url callbacks]
                        (swap! callbacks* conj callbacks)
-                       {:close! (fn [] nil)
+                       {:callback-driven? true
+                        :close!           (fn [] nil)
                         :send!  (fn [payload] (swap! sent* conj payload))})
           client     (sut/connect! {:token       "test-token"
                                     :connect-ws! connect!})]
@@ -131,7 +147,8 @@
           callbacks* (atom [])
           connect!   (fn [_url callbacks]
                        (swap! callbacks* conj callbacks)
-                       {:close! (fn [] nil)
+                       {:callback-driven? true
+                        :close!           (fn [] nil)
                         :send!  (fn [payload] (swap! sent* conj payload))})
           client     (sut/connect! {:token       "test-token"
                                     :connect-ws! connect!})]
@@ -149,7 +166,8 @@
           callbacks* (atom [])
           connect!   (fn [_url callbacks]
                        (swap! callbacks* conj callbacks)
-                       {:close! (fn [] nil)
+                       {:callback-driven? true
+                        :close!           (fn [] nil)
                         :send!  (fn [payload] (swap! sent* conj payload))})
           client     (sut/connect! {:token       "test-token"
                                     :connect-ws! connect!})]
@@ -167,7 +185,8 @@
           callbacks* (atom [])
           connect!   (fn [_url callbacks]
                        (swap! callbacks* conj callbacks)
-                       {:close! (fn [] nil)
+                       {:callback-driven? true
+                        :close!           (fn [] nil)
                         :send!  (fn [payload] (swap! sent* conj payload))})
           client     (sut/connect! {:token       "test-token"
                                     :connect-ws! connect!})]
@@ -186,7 +205,8 @@
           connect!   (fn [_url callbacks]
                        (if (nil? @callbacks*)
                          (do (reset! callbacks* callbacks)
-                             {:close! (fn [] nil)
+                             {:callback-driven? true
+                        :close!           (fn [] nil)
                               :send!  (fn [payload] (swap! sent conj payload))})
                          (throw (ex-info "network down" {}))))
           client     (sut/connect! {:token                "test-token"
@@ -211,7 +231,8 @@
           connect!   (fn [_url callbacks]
                        (if (nil? @callbacks*)
                          (do (reset! callbacks* callbacks)
-                             {:close! (fn [] nil)
+                             {:callback-driven? true
+                        :close!           (fn [] nil)
                               :send!  (fn [payload]
                                         (if @fail?
                                           (throw (java.io.IOException. "Output closed"))
@@ -246,7 +267,8 @@
                        (if (and (> @attempts* 1) (<= @attempts* 3))
                          (throw (ex-info "network down" {}))
                          (do (swap! callbacks* conj callbacks)
-                             {:close! (fn [] nil)
+                             {:callback-driven? true
+                        :close!           (fn [] nil)
                               :send!  (fn [payload] (swap! sent* conj payload))})))
           client     (sut/connect! {:token                  "test-token"
                                     :scheduler              sch
@@ -269,12 +291,111 @@
       (should= :discord.gateway/reconnect-attempt
                (:event (last (filter #(= :discord.gateway/reconnect-attempt (:event %)) (log/get-entries)))))))
 
+  (it "logs and reconnects on Discord opcode 7 (Reconnect)"
+    (let [sent*      (atom [])
+          callbacks* (atom [])
+          clock      (test-clock/make)
+          sch        (:scheduler clock)
+          connect!   (fn [_url callbacks]
+                       (swap! callbacks* conj callbacks)
+                       {:callback-driven? true
+                        :close!           (fn [] nil)
+                        :send!  (fn [payload] (swap! sent* conj payload))})
+          client     (sut/connect! {:token       "test-token"
+                                    :scheduler   sch
+                                    :connect-ws! connect!})]
+      ((:on-message (first @callbacks*)) (json/generate-string {:op 10 :d {:heartbeat_interval 45000}}))
+      ((:on-message (first @callbacks*)) (json/generate-string {:op 0 :t "READY" :s 7 :d {:session_id "abc" :user {:id "bot"}}}))
+      ((:on-message (first @callbacks*)) (json/generate-string {:op 7}))
+      (test-clock/advance! clock 1000)
+      (should (close-and-reconnect-logged?))
+      (should (contains? (log-events) :discord.gateway/reconnect-requested))
+      (should (sut/running? client))))
+
+  (it "logs and reconnects with RESUME on opcode 9 when session is resumable"
+    (let [sent*      (atom [])
+          callbacks* (atom [])
+          connect!   (fn [_url callbacks]
+                       (swap! callbacks* conj callbacks)
+                       {:callback-driven? true
+                        :close!           (fn [] nil)
+                        :send!  (fn [payload] (swap! sent* conj payload))})
+          _client    (sut/connect! {:token       "test-token"
+                                    :connect-ws! connect!})]
+      ((:on-message (first @callbacks*)) (json/generate-string {:op 10 :d {:heartbeat_interval 45000}}))
+      ((:on-message (first @callbacks*)) (json/generate-string {:op 0 :t "READY" :s 7 :d {:session_id "abc" :user {:id "bot"}}}))
+      ((:on-message (first @callbacks*)) (json/generate-string {:op 9 :d true}))
+      (should (close-and-reconnect-logged?))
+      (should (contains? (log-events) :discord.gateway/invalid-session))
+      (should= 6 (:op (last @sent*)))))
+
+  (it "logs and reconnects with IDENTIFY on opcode 9 when session is not resumable"
+    (let [sent*      (atom [])
+          callbacks* (atom [])
+          connect!   (fn [_url callbacks]
+                       (swap! callbacks* conj callbacks)
+                       {:callback-driven? true
+                        :close!           (fn [] nil)
+                        :send!  (fn [payload] (swap! sent* conj payload))})
+          _client    (sut/connect! {:token       "test-token"
+                                    :connect-ws! connect!})]
+      ((:on-message (first @callbacks*)) (json/generate-string {:op 10 :d {:heartbeat_interval 45000}}))
+      ((:on-message (first @callbacks*)) (json/generate-string {:op 0 :t "READY" :s 7 :d {:session_id "abc" :user {:id "bot"}}}))
+      ((:on-message (first @callbacks*)) (json/generate-string {:op 9 :d false}))
+      (should (close-and-reconnect-logged?))
+      (should (contains? (log-events) :discord.gateway/invalid-session))
+      (should= 2 (:op (last @sent*)))))
+
+  (it "detects a missed heartbeat ack and never goes silent"
+    (let [sent       (atom [])
+          callbacks* (atom nil)
+          clock      (test-clock/make)
+          sch        (:scheduler clock)
+          connect!   (fn [_url callbacks]
+                       (if (nil? @callbacks*)
+                         (do (reset! callbacks* callbacks)
+                             {:callback-driven? true
+                        :close!           (fn [] nil)
+                              :send!  (fn [payload] (swap! sent conj payload))})
+                         (do (reset! callbacks* callbacks)
+                             {:callback-driven? true
+                        :close!           (fn [] nil)
+                              :send!  (fn [payload] (swap! sent conj payload))})))
+          client     (sut/connect! {:token              "test-token"
+                                    :scheduler          sch
+                                    :reconnect-delay-ms 1000
+                                    :connect-ws!        connect!})]
+      ((:on-message @callbacks*) (json/generate-string {:op 10 :d {:heartbeat_interval 45000}}))
+      ((:on-message @callbacks*) (json/generate-string {:op 0 :t "READY" :s 7 :d {:session_id "abc" :user {:id "bot"}}}))
+      (test-clock/advance! clock 45000)
+      (should= 1 (count (filter #(= 1 (:op %)) @sent)))
+      (test-clock/advance! clock 45000)
+      (should (contains? (log-events) :discord.gateway/heartbeat-ack-timeout))
+      (should (contains? (log-events) :discord.gateway/heartbeat-cancelled))
+      (test-clock/advance! clock 1000)
+      (should (contains? (log-events) :discord.gateway/reconnect-attempt))
+      (should (sut/running? client))))
+
+  (it "emits periodic liveness logs from the heartbeat task"
+    (let [sent       (atom [])
+          callbacks* (atom nil)
+          clock      (test-clock/make)
+          client     (sut/connect! {:token       "test-token"
+                                    :scheduler   (:scheduler clock)
+                                    :connect-ws! (fake-connect! sent callbacks*)})]
+      ((:on-message @callbacks*) (json/generate-string {:op 10 :d {:heartbeat_interval 45000}}))
+      ((:on-message @callbacks*) (json/generate-string {:op 0 :t "READY" :s 1 :d {:session_id "abc"}}))
+      ((:on-message @callbacks*) (json/generate-string {:op 11}))
+      (test-clock/advance! clock 45000)
+      (should (contains? (log-events) :discord.gateway/liveness))))
+
   (it "logs fatal close codes without reconnecting"
     (let [sent*      (atom [])
           callbacks* (atom [])
           connect!   (fn [_url callbacks]
                        (swap! callbacks* conj callbacks)
-                       {:close! (fn [] nil)
+                       {:callback-driven? true
+                        :close!           (fn [] nil)
                         :send!  (fn [payload] (swap! sent* conj payload))})
           _client    (sut/connect! {:token       "test-token"
                                     :connect-ws! connect!})]
@@ -287,7 +408,8 @@
           callbacks* (atom [])
           connect!   (fn [_url callbacks]
                        (swap! callbacks* conj callbacks)
-                       {:close! (fn [] nil)
+                       {:callback-driven? true
+                        :close!           (fn [] nil)
                         :send!  (fn [payload] (swap! sent* conj payload))})
           client     (sut/connect! {:token       "test-token"
                                     :connect-ws! connect!})]
@@ -301,7 +423,8 @@
     (let [callbacks* (atom [])
           connect!   (fn [_url callbacks]
                        (swap! callbacks* conj callbacks)
-                       {:close! (fn [] nil) :send! (fn [_] nil)})
+                       {:callback-driven? true
+                        :close!           (fn [] nil) :send! (fn [_] nil)})
           _client    (sut/connect! {:token       "test-token"
                                     :connect-ws! connect!})]
       ((:on-close (first @callbacks*)) {:status-code 4004 :reason "bad token"})
@@ -312,7 +435,8 @@
     (let [callbacks* (atom nil)
           connect!   (fn [_url callbacks]
                        (reset! callbacks* callbacks)
-                       {:close! (fn [] nil)
+                       {:callback-driven? true
+                        :close!           (fn [] nil)
                         :send!  (fn [_] nil)})
           error      (ex-info "connection reset" {:socket :discord})]
       (log/capture-logs
@@ -331,41 +455,41 @@
                       (mapv #(select-keys % [:level :event :ex-class :error-message :payload])))))))
 
   (it "treats polling transport error maps as structured gateway errors"
-    (let [messages*  (atom [{:error (ex-info "boom" {:source :socket})}])
+    (let [messages*  (atom [{:error (ex-info "boom" {:source :socket})} nil])
           transport  {:close! (fn [] nil)
                       :send!  (fn [_] nil)}
-          connect!   (fn [_url _callbacks] transport)
-          client     (sut/connect! {:token       "test-token"
-                                    :connect-ws! connect!})]
+          connect!   (fn [_url _callbacks] transport)]
       (with-redefs [sut/transport-receive! (fn [_]
                                              (let [message (first @messages*)]
                                                (swap! messages* rest)
                                                message))
                     ws/ws-close-payload    (fn [_] {:status-code 4000 :reason "resume"})]
         (log/capture-logs
-          (#'sut/start-reader-loop! client transport)
-          (loop [n 0]
-            (when (and (< n 1000) (nil? (:disconnect @(:state client))))
-              (Thread/sleep 1)
-              (recur (inc n))))
-          (should= {:status-code 4000 :reason "resume"}
-                   (:disconnect @(:state client)))
-          (let [entries (->> @log/captured-logs
-                             (filter #(contains? #{:discord.gateway/error :discord.gateway/disconnected} (:event %)))
-                             (take 2)
-                             (mapv #(select-keys % [:event :payload])))]
-            (should= #{:discord.gateway/error :discord.gateway/disconnected}
-                     (set (map :event entries)))
-            (should (some #(= {:event :discord.gateway/error
-                               :payload {:message "boom"
-                                         :class   "clojure.lang.ExceptionInfo"
-                                         :data    {:source :socket}}}
-                              %)
-                          entries))
-            (should (some #(= {:event :discord.gateway/disconnected
-                               :payload {:status-code 4000 :reason "resume"}}
-                              %)
-                          entries)))))))
+          (let [client (sut/connect! {:token       "test-token"
+                                      :connect-ws! connect!})]
+            (loop [n 0]
+              (when (and (< n 1000) (nil? (:disconnect @(:state client))))
+                (Thread/sleep 1)
+                (recur (inc n))))
+            (should= {:status-code 4000 :reason "resume"}
+                     (:disconnect @(:state client)))
+            (let [entries (->> @log/captured-logs
+                               (filter #(contains? #{:discord.gateway/error :discord.gateway/disconnected} (:event %)))
+                               (take 2)
+                               (mapv #(select-keys % [:event :payload])))]
+              (should= #{:discord.gateway/error :discord.gateway/disconnected}
+                       (set (map :event entries)))
+              (should (some #(= {:event :discord.gateway/error
+                                 :payload {:message "boom"
+                                           :class   "clojure.lang.ExceptionInfo"
+                                           :data    {:source :socket}}}
+                                %)
+                            entries))
+              (should (some #(= {:event :discord.gateway/disconnected
+                                 :payload {:status-code 4000 :reason "resume"}}
+                                %)
+                            entries)))
+            (sut/stop! client))))))
 
   (describe "message intake"
 
@@ -436,8 +560,8 @@
         ((:on-message @callbacks*) (json/generate-string {:op 10 :d {:heartbeat_interval 45000}}))
         ((:on-message @callbacks*) (json/generate-string {:op 0 :t "READY" :s 1 :d {:session_id "abc" :user {:id "bot"}}}))
         ((:on-message @callbacks*) (json/generate-string {:op 0 :t "MESSAGE_CREATE" :s 2 :d {:channel_id "999001" :guild_id "888888" :author {:id "123"} :content "hi"}}))
-        (let [entry (last (log/get-entries))]
-          (should= :discord.gateway/message-rejected (:event entry))
+        (let [entry (some #(when (= :discord.gateway/message-rejected (:event %)) %)
+                        (log/get-entries))]
           (should= :guild (:reason entry)))))
 
     (it "logs :user rejection when DM is from a non-allowlisted user"
@@ -449,8 +573,8 @@
         ((:on-message @callbacks*) (json/generate-string {:op 10 :d {:heartbeat_interval 45000}}))
         ((:on-message @callbacks*) (json/generate-string {:op 0 :t "READY" :s 1 :d {:session_id "abc" :user {:id "bot"}}}))
         ((:on-message @callbacks*) (json/generate-string {:op 0 :t "MESSAGE_CREATE" :s 2 :d {:channel_id "555001" :author {:id "999999"} :content "spam"}}))
-        (let [entry (last (log/get-entries))]
-          (should= :discord.gateway/message-rejected (:event entry))
+        (let [entry (some #(when (= :discord.gateway/message-rejected (:event %)) %)
+                        (log/get-entries))]
           (should= :user (:reason entry)))))
 
     (it "logs :self rejection when bot receives its own message"
@@ -463,8 +587,8 @@
         ((:on-message @callbacks*) (json/generate-string {:op 10 :d {:heartbeat_interval 45000}}))
         ((:on-message @callbacks*) (json/generate-string {:op 0 :t "READY" :s 1 :d {:session_id "abc" :user {:id "555"}}}))
         ((:on-message @callbacks*) (json/generate-string {:op 0 :t "MESSAGE_CREATE" :s 2 :d {:channel_id "999001" :guild_id "789012" :author {:id "555"} :content "echo"}}))
-        (let [entry (last (log/get-entries))]
-          (should= :discord.gateway/message-rejected (:event entry))
+        (let [entry (some #(when (= :discord.gateway/message-rejected (:event %)) %)
+                        (log/get-entries))]
           (should= :self (:reason entry)))))
 
     (it "update-allow-from! applies new filter without reconnecting"

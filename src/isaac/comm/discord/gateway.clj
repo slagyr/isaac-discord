@@ -76,12 +76,41 @@
     (swap! (:state client) assoc :status :resuming)
     (log/info :discord.gateway/resume :seq (get-in payload [:d :seq]) :session-id (get-in payload [:d :session_id]))))
 
-(defn- send-heartbeat! [client]
-  (let [payload (heartbeat-payload (:sequence @(:state client)))]
-    (transport-send! (:transport @(:state client)) payload)
-    (log/debug :discord.gateway/heartbeat :sequence (:d payload))))
+(defn- heartbeat-ack-missing? [state]
+  (true? (:heartbeat-ack-pending? state)))
 
-(defn- cancel-heartbeat! [client]
+(defn- log-liveness! [client]
+  (let [state      @(:state client)
+        interval   (:heartbeat-interval-ms state)
+        ack-at     (:last-heartbeat-ack-at-ms state)
+        now        (now-ms)
+        ack-age-ms (when ack-at (- now ack-at))]
+    (if (and ack-age-ms interval (> ack-age-ms (* 2 interval)))
+      (log/warn :discord.gateway/liveness-stale
+                :last-ack-ms-ago ack-age-ms
+                :heartbeat-interval-ms interval)
+      (log/info :discord.gateway/liveness
+                :last-ack-ms-ago (or ack-age-ms "never")
+                :status (:status state)))))
+
+(defn- send-heartbeat! [client]
+  (when (heartbeat-ack-missing? @(:state client))
+    (log/warn :discord.gateway/heartbeat-ack-timeout
+              :sent-sequence (:last-heartbeat-sent-sequence @(:state client)))
+    (on-close! client {:reason "heartbeat-ack-timeout" :status 1006}))
+  (when (and (:running? @(:state client))
+             (not (heartbeat-ack-missing? @(:state client))))
+    (let [seq     (:sequence @(:state client))
+          payload (heartbeat-payload seq)]
+      (transport-send! (:transport @(:state client)) payload)
+      (swap! (:state client) assoc
+             :last-heartbeat-sent-sequence seq
+             :heartbeat-ack-pending? true)
+      (log/debug :discord.gateway/heartbeat :sequence (:d payload)))))
+
+(defn- cancel-heartbeat! [client & [{:keys [reason]}]]
+  (when (:heartbeat-task-id @(:state client))
+    (log/warn :discord.gateway/heartbeat-cancelled :reason (or reason "unspecified")))
   (when-let [task-id (:heartbeat-task-id @(:state client))]
     (when-let [task-sch (:heartbeat-scheduler @(:state client))]
       (scheduler/cancel! task-sch task-id))
@@ -89,18 +118,14 @@
 
 (defn- schedule-heartbeats! [client interval-ms]
   (when-let [sch (or (:scheduler client) (nexus/get :scheduler))]
-    (cancel-heartbeat! client)
+    (cancel-heartbeat! client {:reason "reschedule"})
     (let [id (scheduler/every! sch interval-ms
                                (fn [_]
                                  (when (:running? @(:state client))
+                                   (log-liveness! client)
                                    (try
                                      (send-heartbeat! client)
                                      (catch Exception e
-                                       ;; The socket is dead (e.g. "Output closed") — a
-                                       ;; network drop that produced no clean close. Stop
-                                       ;; hammering it: treat the failed beat as a
-                                       ;; disconnect so the heartbeat is cancelled and a
-                                       ;; reconnect is attempted, instead of firing forever.
                                        (log/ex :discord.gateway/heartbeat-failed e)
                                        (on-close! client {:reason "heartbeat-send-failed"}))))))]
       (swap! (:state client) assoc :heartbeat-task-id id :heartbeat-scheduler sch))))
@@ -112,7 +137,13 @@
 
 (defn- handle-hello! [client data]
   (let [interval-ms (:heartbeat_interval data)]
-    (swap! (:state client) assoc :status :hello-received :heartbeat-interval-ms interval-ms)
+    (swap! (:state client) assoc
+           :status :hello-received
+           :heartbeat-interval-ms interval-ms
+           :last-heartbeat-sent-sequence nil
+           :last-heartbeat-acked-sequence nil
+           :last-heartbeat-ack-at-ms nil
+           :heartbeat-ack-pending? false)
     (log/info :discord.gateway/hello :heartbeat-interval-ms interval-ms)
     (schedule-heartbeats! client interval-ms)
     (send-identify! client)))
@@ -172,16 +203,34 @@
 
     nil))
 
+(defn- handle-reconnect-op! [client]
+  (log/warn :discord.gateway/reconnect-requested :opcode 7)
+  (on-close! client {:reason "opcode-7-reconnect" :status 4000 :mode :resume}))
+
+(defn- handle-invalid-session-op! [client resumable?]
+  (log/warn :discord.gateway/invalid-session :opcode 9 :resumable resumable?)
+  (on-close! client {:reason (str "opcode-9-invalid-session-" resumable?)
+                    :status (if resumable? 4000 4009)
+                    :mode   (if resumable? :resume :identify)}))
+
 (defn- handle-frame! [client message]
   (when-let [sequence (:s message)]
     (swap! (:state client) assoc :sequence sequence))
   (case (:op message)
     10 (handle-hello! client (:d message))
     11 (do
-         (swap! (:state client) assoc :last-heartbeat-ack-sequence (:sequence @(:state client)))
+         (swap! (:state client)
+                (fn [s]
+                  (-> s
+                      (assoc :last-heartbeat-acked-sequence (:last-heartbeat-sent-sequence s)
+                             :last-heartbeat-ack-at-ms (now-ms)
+                             :heartbeat-ack-pending? false))))
          (log/debug :discord.gateway/heartbeat-ack))
+    7  (handle-reconnect-op! client)
+    9  (handle-invalid-session-op! client (:d message))
     0  (handle-dispatch! client message)
-    nil))
+    (when (some? (:op message))
+      (log/warn :discord.gateway/unhandled-opcode :opcode (:op message)))))
 
 (defn receive-text! [client text]
   (try
@@ -222,7 +271,9 @@
 (defn- attempt-reconnect! [client mode]
   (if-let [sch (or (:scheduler client) (nexus/get :scheduler))]
     (schedule-reconnect! client mode)
-    (do-reconnect! client mode)))
+    (do
+      (log/info :discord.gateway/reconnect-attempt :mode mode)
+      (do-reconnect! client mode))))
 
 (defn- close-status [payload]
   (or (:status payload) (:code payload) (:status-code payload)))
@@ -241,7 +292,7 @@
 (defn- on-close! [client payload]
   (let [status (close-status payload)
         reason (:reason payload)]
-    (cancel-heartbeat! client)
+    (cancel-heartbeat! client {:reason (or reason "connection-closed")})
     (when-let [transport (:transport @(:state client))]
       (transport-close! transport))
     (swap! (:state client) assoc :status :disconnected :disconnect payload :transport nil)
@@ -254,40 +305,44 @@
         (log/error :discord.gateway/fatal-close :payload payload :status status :reason reason))
 
       :else
-      (let [mode (reconnect-mode-for-close status)]
-        (log/info :discord.gateway/disconnected :payload payload :status status :reason reason :mode mode)
+      (let [mode (or (:mode payload) (reconnect-mode-for-close status))]
+        (log/warn :discord.gateway/disconnected :payload payload :status status :reason reason :mode mode)
         (attempt-reconnect! client mode)))))
 
 (defn- start-reader-loop! [client transport]
   (when-not (:callback-driven? transport)
     (future
-      (loop []
-        (when (:running? @(:state client))
-          (let [message (transport-receive! transport)]
-            (cond
-              (= ws/timeout message)
-              (recur)
+      (try
+        (loop []
+          (if (:running? @(:state client))
+            (let [message (transport-receive! transport)]
+              (cond
+                (= ws/timeout message)
+                (recur)
 
-              (nil? message)
-              (on-close! client (or (ws/ws-close-payload transport) {:reason "closed"}))
+                (nil? message)
+                (on-close! client (or (ws/ws-close-payload transport) {:reason "reader-nil-message"}))
 
-              :else
-              (do
-                (cond
-                  (and (map? message) (= :close (:type message)))
-                  (on-close! client message)
+                (and (map? message) (= :close (:type message)))
+                (on-close! client message)
 
-                  (and (map? message) (:error message))
-                  (log/ex :discord.gateway/error (:error message)
-                          :payload (error-payload (:error message)))
+                :else
+                (do
+                  (cond
+                    (and (map? message) (:error message))
+                    (log/ex :discord.gateway/error (:error message)
+                            :payload (error-payload (:error message)))
 
-                  (map? message)
-                  (log/error :discord.gateway/transport-error :error (str message))
+                    (map? message)
+                    (log/error :discord.gateway/transport-error :error (str message))
 
-                  :else
-                  (receive-text! client message))
-                (when (:running? @(:state client))
-                  (recur))))))))))
+                    :else
+                    (receive-text! client message))
+                  (recur))))
+            nil))
+        (catch Exception e
+          (log/ex :discord.gateway/reader-loop-failed e)
+          (on-close! client {:reason "reader-loop-failed" :status 1006}))))))
 
 (defn connect!
   [{:keys [token url connect-ws! scheduler allow-from-users allow-from-guilds on-accepted-message!
@@ -339,8 +394,9 @@
   (:accepted @(:state client)))
 
 (defn stop! [client]
+  (log/info :discord.gateway/stopping)
   (swap! (:state client) assoc :running? false :status :disconnected)
-  (cancel-heartbeat! client)
+  (cancel-heartbeat! client {:reason "stop"})
   (when-let [sch (or (:scheduler client) (nexus/get :scheduler))]
     (scheduler/cancel! sch reconnect-task-id))
   (when-let [transport (:transport @(:state client))]
