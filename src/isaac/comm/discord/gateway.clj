@@ -67,13 +67,13 @@
 (defn- send-identify! [client]
   (let [payload (identify-payload (:token client))]
     (transport-send! (:transport @(:state client)) payload)
-    (swap! (:state client) assoc :status :identified)
+    (swap! (:state client) assoc :status :identified :auth-sent? true)
     (log/info :discord.gateway/identify :intents intents)))
 
 (defn- send-resume! [client]
   (let [payload (resume-payload client)]
     (transport-send! (:transport @(:state client)) payload)
-    (swap! (:state client) assoc :status :resuming)
+    (swap! (:state client) assoc :status :resuming :auth-sent? true)
     (log/info :discord.gateway/resume :seq (get-in payload [:d :seq]) :session-id (get-in payload [:d :session_id]))))
 
 (defn- heartbeat-ack-missing? [state]
@@ -146,7 +146,12 @@
            :heartbeat-ack-pending? false)
     (log/info :discord.gateway/hello :heartbeat-interval-ms interval-ms)
     (schedule-heartbeats! client interval-ms)
-    (send-identify! client)))
+    ;; On a fresh connect, HELLO drives the single IDENTIFY. On a reconnect the
+    ;; auth (IDENTIFY or RESUME) was already sent eagerly in do-reconnect!, so the
+    ;; reconnected socket's HELLO must NOT auth again — Discord rejects the second
+    ;; ("Already authenticated"), killing heartbeats until a full restart (isaac-ceeq).
+    (when-not (:auth-sent? @(:state client))
+      (send-identify! client))))
 
 (defn- handle-dispatch! [client message]
   (when-let [sequence (:s message)]

@@ -32,3 +32,21 @@ Feature: Discord Gateway connection
     And Discord sends READY:
       | session_id | fake-session |
     Then the Discord client is connected
+
+  # isaac-ceeq: opcode 7 (Reconnect) used to produce a double auth — the eager
+  # auth in do-reconnect! plus an unconditional IDENTIFY on the reconnected
+  # socket's HELLO. Discord rejected the second, heartbeats died. The reconnect
+  # must send exactly one auth and keep heartbeating.
+  Scenario: client reconnects cleanly after opcode 7 without a duplicate auth
+    When the Discord client connects
+    And Discord sends HELLO:
+      | heartbeat_interval | 45000 |
+    And Discord sends READY:
+      | session_id | fake-session |
+    And Discord sends opcode 7
+    And the reconnect delay passes
+    And Discord sends HELLO:
+      | heartbeat_interval | 45000 |
+    Then the Discord client sends exactly one RESUME or IDENTIFY on reconnect
+    And the Discord client continues sending HEARTBEATs
+    And no "Already authenticated" reconnect failure is logged

@@ -468,6 +468,37 @@
 (defn discord-sends-heartbeat []
   (g/should-not-be-nil (sent-op 1)))
 
+(defn- auth-payload-count []
+  (count (filter #(contains? #{2 6} (:op %)) @(g/get :discord-sent))))
+
+(defn- heartbeat-payload-count []
+  (count (filter #(= 1 (:op %)) @(g/get :discord-sent))))
+
+(defn discord-sends-opcode-7 []
+  ;; snapshot the auth count so the reconnect assertion measures only auths sent
+  ;; from here on (the initial IDENTIFY is already in :discord-sent)
+  (g/assoc! :auth-count-at-reconnect (auth-payload-count))
+  ((:on-message @(g/get :discord-callbacks)) (json/generate-string {:op 7})))
+
+(defn reconnect-delay-passes []
+  (let [delay (or (:reconnect-delay-ms (active-client)) 1000)]
+    (test-clock/advance! (g/get :discord-clock) delay)))
+
+(defn discord-sends-one-auth-on-reconnect []
+  (g/should= 1 (- (auth-payload-count) (or (g/get :auth-count-at-reconnect) 0))))
+
+(defn discord-continues-heartbeats []
+  (let [before   (heartbeat-payload-count)
+        interval (or (:heartbeat-interval-ms @(:state (active-client))) 45000)]
+    (test-clock/advance! (g/get :discord-clock) interval)
+    (g/should (> (heartbeat-payload-count) before))))
+
+(defn no-reconnect-failure-logged [text]
+  (let [entries (log/get-entries)]
+    (g/should-not (contains? (set (map :event entries)) :discord.gateway/reader-loop-failed))
+    (g/should-not (some (fn [e] (str/includes? (str/lower-case (pr-str e)) (str/lower-case text)))
+                        entries))))
+
 (defn discord-client-connected []
   (helper/await-condition
     #(let [client (active-client)]
@@ -635,6 +666,31 @@
 (defthen "the Discord client sends RESUME:" isaac.comm.discord.discord-steps/discord-sends-resume)
 
 (defthen "the Discord client sends HEARTBEAT" isaac.comm.discord.discord-steps/discord-sends-heartbeat)
+
+(defwhen "Discord sends opcode 7" isaac.comm.discord.discord-steps/discord-sends-opcode-7
+  "Synthesizes an inbound opcode 7 (Reconnect) frame via the on-message
+   callback and snapshots the auth-payload count so a later assertion can
+   measure auths sent for the reconnect alone.")
+
+(defwhen "the reconnect delay passes" isaac.comm.discord.discord-steps/reconnect-delay-passes
+  "Advances the virtual clock past the gateway reconnect delay so the
+   scheduled reconnect fires (do-reconnect! opens the new socket).")
+
+(defthen "the Discord client sends exactly one RESUME or IDENTIFY on reconnect"
+  isaac.comm.discord.discord-steps/discord-sends-one-auth-on-reconnect
+  "Asserts exactly one auth payload (op 2 IDENTIFY or op 6 RESUME) was sent
+   since 'Discord sends opcode 7' — i.e. no duplicate auth on the reconnected
+   socket's HELLO (isaac-ceeq).")
+
+(defthen "the Discord client continues sending HEARTBEATs"
+  isaac.comm.discord.discord-steps/discord-continues-heartbeats
+  "Advances one heartbeat interval and asserts a new HEARTBEAT was sent —
+   proving heartbeats resumed on the reconnected socket.")
+
+(defthen #"no \"([^\"]+)\" reconnect failure is logged"
+  isaac.comm.discord.discord-steps/no-reconnect-failure-logged
+  "Asserts no reader-loop failure and no log entry containing the given text
+   (e.g. Discord's 'Already authenticated' rejection) was logged.")
 
 (defthen "the Discord client is connected" isaac.comm.discord.discord-steps/discord-client-connected)
 

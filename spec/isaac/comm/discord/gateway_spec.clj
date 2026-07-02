@@ -331,6 +331,38 @@
       (should (contains? (log-events) :discord.gateway/reconnect-requested))
       (should (sut/running? client))))
 
+  (it "reconnects after opcode 7 without a duplicate auth when the new HELLO arrives"
+    (let [sent*      (atom [])
+          callbacks* (atom [])
+          clock      (test-clock/make)
+          sch        (:scheduler clock)
+          connect!   (fn [_url callbacks]
+                       (swap! callbacks* conj callbacks)
+                       {:callback-driven? true
+                        :close!           (fn [] nil)
+                        :send!  (fn [payload] (swap! sent* conj payload))})
+          client     (sut/connect! {:token       "test-token"
+                                    :scheduler   sch
+                                    :connect-ws! connect!})
+          auth?      #(contains? #{2 6} (:op %))]
+      ((:on-message (first @callbacks*)) (json/generate-string {:op 10 :d {:heartbeat_interval 45000}}))
+      ((:on-message (first @callbacks*)) (json/generate-string {:op 0 :t "READY" :s 7 :d {:session_id "abc" :user {:id "bot"}}}))
+      (let [auth-before (count (filter auth? @sent*))]
+        ;; opcode 7 → reconnect → the eager RESUME on the new socket, then Discord's
+        ;; HELLO on the reconnected socket. The old bug re-sent IDENTIFY on that HELLO.
+        ((:on-message (first @callbacks*)) (json/generate-string {:op 7}))
+        (test-clock/advance! clock 1000)
+        (should= 2 (count @callbacks*))
+        ((:on-message (second @callbacks*)) (json/generate-string {:op 10 :d {:heartbeat_interval 45000}}))
+        ;; exactly one auth sent for the reconnect, and it is the RESUME, not a duplicate IDENTIFY
+        (should= 1 (- (count (filter auth? @sent*)) auth-before))
+        (should= 6 (:op (last (filter auth? @sent*))))
+        (should (sut/running? client))
+        ;; heartbeats resume on the reconnected socket
+        (let [beats-before (count (filter #(= 1 (:op %)) @sent*))]
+          (test-clock/advance! clock 45000)
+          (should (> (count (filter #(= 1 (:op %)) @sent*)) beats-before))))))
+
   (it "logs and reconnects with RESUME on opcode 9 when session is resumable"
     (let [sent*      (atom [])
           callbacks* (atom [])
