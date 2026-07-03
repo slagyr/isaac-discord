@@ -3,10 +3,14 @@
     [isaac.comm.discord :as discord]
     [isaac.comm.discord.gateway :as gateway]
     [isaac.logger :as log]
+    [isaac.nexus :as nexus]
+    [isaac.scheduler.runtime :as scheduler]
     [isaac.server.app :as server-app]
     [isaac.service.factory :as factory]
     [isaac.service.protocol :as protocol]
     [isaac.service.registry :as registry]))
+
+(defonce ^:private watchdog-stale-since (atom {}))
 
 (deftype DiscordRegistration [comm-impl]
   Object
@@ -70,13 +74,47 @@
                                     {:allow-from-users  (get-in slice [:discord/allow-from :users])
                                      :allow-from-guilds (get-in slice [:discord/allow-from :guilds])})))))
 
-(deftype DiscordService [running?*]
+(defn- start-liveness-watchdog! [running?* task-id*]
+  (when-let [sch (nexus/get :scheduler)]
+    (let [id (scheduler/every! sch 60000
+                               (fn [_]
+                                 (when @running?*
+                                   (doseq [reg (registry/registrations-for :discord)]
+                                     (try
+                                       (when-let [comm-impl (.-comm-impl reg)]
+                                         (when-let [current (:client (discord/client comm-impl))]
+                                           (let [key (System/identityHashCode current)
+                                                 now (System/currentTimeMillis)]
+                                             (if (gateway/connected? current)
+                                               (swap! watchdog-stale-since dissoc key)
+                                               (let [since (or (get @watchdog-stale-since key)
+                                                               (do (swap! watchdog-stale-since assoc key now)
+                                                                   now))]
+                                                 (when (> (- now since) (* 5 60 1000))
+                                                   (log/warn :discord.watchdog/stale-connection
+                                                             :duration-ms (- now since)
+                                                             :forcing-reconnect true)
+                                                   (gateway/stop! current)
+                                                   (reset! (.-conn comm-impl) nil)
+                                                   (swap! watchdog-stale-since dissoc key)
+                                                   (when (server-running?)
+                                                     (reconcile-registration! reg))))))))
+                                       (catch Exception e
+                                         (log/ex :discord.watchdog/check-failed e)))))))]
+      (reset! task-id* id))))
+
+(deftype DiscordService [running?* watchdog-task-id*]
   protocol/Service
   (start [_]
     (reset! running?* true)
     (doseq [reg (registry/registrations-for :discord)]
-      (connect-registration! reg)))
+      (connect-registration! reg))
+    (start-liveness-watchdog! running?* watchdog-task-id*))
   (stop [_]
+    (when-let [id @watchdog-task-id*]
+      (when-let [sch (nexus/get :scheduler)]
+        (scheduler/cancel! sch id))
+      (reset! watchdog-task-id* nil))
     (doseq [reg (registry/registrations-for :discord)]
       (disconnect-registration! reg))
     (reset! running?* false)))
@@ -123,4 +161,4 @@
     (registry/deregister! :discord reg)))
 
 (defmethod factory/create :discord [_ _ctx]
-  (->DiscordService (atom false)))
+  (->DiscordService (atom false) (atom nil)))
