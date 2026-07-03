@@ -12,6 +12,8 @@
 
 (defonce ^:private watchdog-stale-since (atom {}))
 
+(declare server-running? reconcile-registration!)
+
 (deftype DiscordRegistration [comm-impl]
   Object
   (equals [this other]
