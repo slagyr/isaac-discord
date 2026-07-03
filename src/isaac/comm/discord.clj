@@ -5,6 +5,7 @@
     [isaac.api :as api]
     [isaac.charge :as charge]
     [isaac.comm.factory :as factory]
+    [isaac.comm.render :as render]
     [isaac.comm.discord.gateway :as gateway]
     [isaac.comm.discord.rest :as rest]
     [isaac.config.loader :as loader]
@@ -260,9 +261,12 @@
            (str/join "\n" lines)))))
 
 (defn- result-content [result]
-  (or (:content result)
-      (get-in result [:response :message :content])
-      ""))
+  (let [text (or (:content result)
+                 (get-in result [:response :message :content])
+                 "")]
+    (if (= render/preformatted (:format result))
+      (render/wrap-preformatted text)
+      text)))
 
 (declare connect!)
 
