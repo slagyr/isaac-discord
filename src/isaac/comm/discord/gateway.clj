@@ -335,8 +335,10 @@
                 (do
                   (cond
                     (and (map? message) (:error message))
-                    (log/ex :discord.gateway/error (:error message)
-                            :payload (error-payload (:error message)))
+                    (do
+                      (log/ex :discord.gateway/error (:error message)
+                              :payload (error-payload (:error message)))
+                      (on-close! client {:reason "transport-error" :status 1006}))
 
                     (map? message)
                     (log/error :discord.gateway/transport-error :error (str message))

@@ -537,7 +537,7 @@
                                 %)
                             entries))
               (should (some #(= {:event :discord.gateway/disconnected
-                                 :payload {:status-code 4000 :reason "resume"}}
+                                 :payload {:reason "transport-error" :status 1006}}
                                 %)
                             entries)))
             (sut/stop! client))))))
@@ -652,4 +652,56 @@
         ((:on-message @callbacks*) (json/generate-string {:op 0 :t "READY" :s 1 :d {:session_id "abc" :user {:id "bot"}}}))
         (sut/update-allow-from! client {:allow-from-users ["123" "456"]})
         ((:on-message @callbacks*) (json/generate-string {:op 0 :t "MESSAGE_CREATE" :s 2 :d {:channel_id "555" :author {:id "456"} :content "hi"}}))
-        (should= 1 (count (sut/accepted-messages client)))))))
+        (should= 1 (count (sut/accepted-messages client)))))
+
+    (it "recovers from opcode-7 reconnect wave + reader Output closed after READY (reschedules heartbeats, reaches READY, accepts messages)"
+      (let [sent*      (atom [])
+            callbacks* (atom [])
+            clock      (test-clock/make)
+            sch        (:scheduler clock)
+            connect!   (fn [_url callbacks]
+                         (swap! callbacks* conj callbacks)
+                         {:callback-driven? true
+                          :close!           (fn [] nil)
+                          :send!            (fn [payload] (swap! sent* conj payload))})
+            client     (sut/connect! {:token            "test-token"
+                                      :scheduler        sch
+                                      :allow-from-users ["999"]
+                                      :connect-ws!      connect!})]
+        ;; initial connect to READY
+        ((:on-message (first @callbacks*)) (json/generate-string {:op 10 :d {:heartbeat_interval 45000}}))
+        ((:on-message (first @callbacks*)) (json/generate-string {:op 0 :t "READY" :s 7 :d {:session_id "abc" :user {:id "bot-default"}}}))
+        (should (sut/connected? client))
+        (should= 1 (count (scheduler/list-tasks sch))) ;; heartbeat task
+
+        ;; opcode 7 wave (triggers on-close + schedule reconnect)
+        ((:on-message (first @callbacks*)) (json/generate-string {:op 7}))
+        (test-clock/advance! clock 1000)
+        (should= 2 (count @callbacks*))
+
+        ;; simulate reader "Output closed" (CompletionException style) on the reconnected transport
+        ((:on-close (second @callbacks*)) {:reason "reader-loop-failed" :status 1006})
+        (test-clock/advance! clock 1000)
+        (should= 3 (count @callbacks*))
+
+        ;; simulate HELLO + READY on the recovered connection (the reconnect after reader failure)
+        ((:on-message (last @callbacks*)) (json/generate-string {:op 10 :d {:heartbeat_interval 45000}}))
+        ((:on-message (last @callbacks*)) (json/generate-string {:op 0 :t "READY" :s 42 :d {:session_id "def" :user {:id "bot-default"}}}))
+        (should (sut/connected? client))
+
+        ;; heartbeat / liveness task rescheduled
+        (should= 1 (count (scheduler/list-tasks sch)))
+
+        ;; advance virtual time to fire a heartbeat after recovery
+        (test-clock/advance! clock 45000)
+        (let [heartbeats (filter #(= 1 (:op %)) @sent*)]
+          (should (>= (count heartbeats) 1)))
+
+        ;; after recovery, a simulated MESSAGE_CREATE is accepted (proves reader + heartbeats alive)
+        ((:on-message (last @callbacks*)) (json/generate-string {:op 0 :t "MESSAGE_CREATE" :s 43 :d {:channel_id "123" :author {:id "999"} :content "test"}}))
+        (should= 1 (count (sut/accepted-messages client)))
+
+        ;; no "task already scheduled" exceptions lost
+        (should-not (some (fn [e] (and (= :discord.gateway/error (:event e))
+                                       (re-find #"task already scheduled" (str (:payload e)))))
+                          (log/get-entries)))))))
