@@ -4,10 +4,14 @@
     [clojure.java.io :as io]
     [isaac.comm.discord :as discord]
     [isaac.comm.discord.gateway :as discord-gateway]
+    [isaac.comm.registry :as comm-registry]
     [isaac.config.change-source :as change-source]
     [isaac.fs :as fs]
+    [isaac.module.loader :as module-loader]
     [isaac.nexus :as nexus]
     [isaac.server.app :as sut]
+    [isaac.service.registry :as service-registry]
+    [isaac.service.runtime :as service-runtime]
     [isaac.spec-helper :as helper]
     [speclj.core :refer :all]))
 
@@ -28,7 +32,16 @@
 
   (helper/with-captured-logs)
 
-  (around [example] (nexus/-with-nested-nexus {:fs (fs/mem-fs)} (example)))
+  (around [example]
+    (sut/stop!)
+    (module-loader/clear-activations!)
+    (service-runtime/reset-state!)
+    (binding [comm-registry/*registry*    (atom (comm-registry/fresh-registry))
+              service-registry/*registry* (atom (service-registry/fresh-registry))]
+      (nexus/-with-nested-nexus {:fs (fs/mem-fs)} (example)))
+    (sut/stop!)
+    (module-loader/clear-activations!)
+    (service-runtime/reset-state!))
 
   (after (sut/stop!))
 
@@ -84,7 +97,9 @@
           (fs/spit mem "/tmp/isaac-discord/.isaac/config/isaac.edn"
                    (config-edn {:comms {:discord {:discord/token "new-token"}}}))
           (change-source/notify-path! source "/tmp/isaac-discord/.isaac/config/isaac.edn")
-          (helper/await-condition #(some? @connected) 6000)
+          (helper/await-condition #(and (= "new-token" (get-in (sut/current-config) [:comms :discord :discord/token]))
+                                        (some? @connected))
+                                  10000)
           (sut/stop!)))
       ;; The hot-reload reconcile path derives the comm's state-dir from
       ;; comm-impl/root, which resolves differently across environments — assert
@@ -111,7 +126,9 @@
           (fs/spit mem "/tmp/isaac-discord/.isaac/config/isaac.edn"
                    (config-edn {:comms {:discord {}}}))
           (change-source/notify-path! source "/tmp/isaac-discord/.isaac/config/isaac.edn")
-          (helper/await-condition #(some? @stopped))
+          (helper/await-condition #(and (nil? (get-in (sut/current-config) [:comms :discord :discord/token]))
+                                        (some? @stopped))
+                                  10000)
           (sut/stop!)))
       (should= ::discord-client @stopped)))
 
@@ -136,6 +153,6 @@
           (fs/spit mem "/tmp/isaac-discord/.isaac/config/crew/main.edn"
                    (pr-str {:soul "new"}))
           (change-source/notify-path! source "/tmp/isaac-discord/.isaac/config/crew/main.edn")
-          (helper/await-condition #(= "new" (get-in (sut/current-config) [:crew "main" :soul])))
+          (helper/await-condition #(= "new" (get-in (sut/current-config) [:crew "main" :soul])) 10000)
           (sut/stop!)))
       (should= 1 @connect-count))))

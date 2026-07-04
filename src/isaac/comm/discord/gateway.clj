@@ -341,20 +341,20 @@
                 (and (map? message) (= :close (:type message)))
                 (on-close! client message)
 
+                (and (map? message) (:error message))
+                (do
+                  (log/ex :discord.gateway/error (:error message)
+                          :payload (error-payload (:error message)))
+                  (on-close! client {:reason "transport-error" :status 1006}))
+
+                (map? message)
+                (do
+                  (log/error :discord.gateway/transport-error :error (str message))
+                  (recur))
+
                 :else
                 (do
-                  (cond
-                    (and (map? message) (:error message))
-                    (do
-                      (log/ex :discord.gateway/error (:error message)
-                              :payload (error-payload (:error message)))
-                      (on-close! client {:reason "transport-error" :status 1006}))
-
-                    (map? message)
-                    (log/error :discord.gateway/transport-error :error (str message))
-
-                    :else
-                    (receive-text! client message))
+                  (receive-text! client message)
                   (recur))))
             nil))
         (catch Exception e

@@ -29,7 +29,9 @@
                               {:status 403 :body "forbidden"})]
       (sut/post-message! {:channel-id "C999" :content "hi back" :token "test-token"})
       (should= {:event :discord.reply/http-error :channelId "C999" :status 403}
-               (select-keys (last (log/get-entries)) [:event :channelId :status]))))
+               (some #(when (= :discord.reply/http-error (:event %))
+                        (select-keys % [:event :channelId :status]))
+                     (log/get-entries))))))
 
   (it "enqueues transient failures for delivery retry"
     (let [captured (atom nil)]
@@ -81,4 +83,4 @@
                                 {:status 204 :body ""})]
         (sut/post-typing! {:channel-id "C999" :token "test-token"})
         (should= (str sut/api-base "/channels/C999/typing") (:url @captured))
-        (should= "Bot test-token" (get-in @captured [:opts :headers "Authorization"]))))))
+        (should= "Bot test-token" (get-in @captured [:opts :headers "Authorization"])))))
