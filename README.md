@@ -61,6 +61,33 @@ channel snowflake ID or the friendly `:name` declared on that channel entry:
 ;; comm_send target "announcements" or "123456789012345678" both resolve to the same channel
 ```
 
+## Recovery behavior
+
+The Discord gateway client is designed to recover internally from transient
+transport failures without requiring a full `isaac service restart`.
+
+Observed production failure mode on zanebot:
+
+- Discord sends opcode 7 (`Reconnect`)
+- the socket churns through multiple quick disconnects
+- the client reaches `HELLO` + `READY` again
+- a later reader failure surfaces as `java.io.IOException: "Output closed"`
+  and logs `:discord.gateway/reader-loop-failed`
+
+Recovery expectations:
+
+- queue/transport error maps are treated as disconnect triggers, not just log-only noise
+- a reader failure or transport error schedules exactly one reconnect path at a time
+- reconnect attempts resume or re-identify as appropriate, then return to `READY`
+- heartbeat/liveness scheduling is recreated on the recovered connection
+- `DiscordService` runs a watchdog: if the client stays disconnected for more
+  than 5 minutes, it logs `:discord.watchdog/stale-connection` at WARN and
+  forces a reconnect/re-registration
+
+In short: `"Output closed"`, `reader-loop-failed`, opcode-7 reconnect storms,
+and similar transient websocket failures should self-heal within the normal
+reconnect backoff window.
+
 ## Development
 
 ```bash
