@@ -237,7 +237,7 @@
       (should= 1 (count (scheduler/list-tasks sch)))
       ((:on-close @callbacks*) {:reason "closed"})
       (should= 1 (count (scheduler/list-tasks sch)))
-      (should= :discord.gateway/reconnect (:id (first (scheduler/list-tasks sch))))
+      (should (:reconnect-task-id @(:state client)))
       (test-clock/advance! clock 45000)
       (should= 0 (count (filter #(= 1 (:op %)) @sent)))))
 
@@ -269,7 +269,8 @@
       (test-clock/advance! clock 45000)
       ;; the failed beat is treated as a disconnect: heartbeat cancelled, only
       ;; the reconnect task remains — no more hammering the dead socket.
-      (should= [:discord.gateway/reconnect] (mapv :id (scheduler/list-tasks sch)))
+      (should= 1 (count (scheduler/list-tasks sch)))
+      (should (:reconnect-task-id @(:state client)))
       (let [beats-before (count (filter #(= 1 (:op %)) @sent))]
         (test-clock/advance! clock 45000)
         (test-clock/advance! clock 45000)
@@ -522,7 +523,7 @@
               (when (and (< n 1000) (nil? (:disconnect @(:state client))))
                 (Thread/sleep 1)
                 (recur (inc n))))
-            (should= {:status-code 4000 :reason "resume"}
+            (should= {:reason "transport-error" :status 1006}
                      (:disconnect @(:state client)))
             (let [entries (->> @log/captured-logs
                                (filter #(contains? #{:discord.gateway/error :discord.gateway/disconnected} (:event %)))

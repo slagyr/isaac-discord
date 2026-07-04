@@ -11,9 +11,12 @@
 
 (def ^:private resumable-close-codes #{4000 4001 4002 4003 4008})
 (def ^:private reidentify-close-codes #{1000 1001 1006 4007 4009})
-(def ^:private reconnect-task-id :discord.gateway/reconnect)
+(def ^:private reconnect-task-id-prefix "discord.gateway.reconnect")
 (def ^:private default-reconnect-delay-ms 1000)
 (def ^:private default-reconnect-max-delay-ms 30000)
+
+(defn- next-reconnect-task-id []
+  (keyword reconnect-task-id-prefix (str (random-uuid))))
 
 (defn- normalize-id-set [values]
   (->> (cond
@@ -258,20 +261,28 @@
       (log/info :discord.gateway/reconnect-attempt :mode mode)
       (do-reconnect! client mode))))
 
+(defn- cancel-reconnect! [client]
+  (when-let [sch (or (:scheduler client) (nexus/get :scheduler))]
+    (when-let [task-id (:reconnect-task-id @(:state client))]
+      (scheduler/cancel! sch task-id))
+    (swap! (:state client) dissoc :reconnect-task-id)))
+
 (defn- schedule-reconnect! [client mode]
   (when-let [sch (or (:scheduler client) (nexus/get :scheduler))]
     (let [base-delay (max 1 (or (:reconnect-delay-ms client) default-reconnect-delay-ms))
-          max-delay  (max 1 (or (:reconnect-max-delay-ms client) default-reconnect-max-delay-ms))]
-      (scheduler/cancel! sch reconnect-task-id)
+          max-delay  (max 1 (or (:reconnect-max-delay-ms client) default-reconnect-max-delay-ms))
+          task-id    (next-reconnect-task-id)]
+      (cancel-reconnect! client)
       (scheduler/schedule!
         sch
-        {:id             reconnect-task-id
+        {:id             task-id
          :trigger        {:kind :delay :ms base-delay}
          :handler        (reconnect-handler client mode)
          :on-error       :retry
          :backoff-ms     base-delay
          :max-backoff-ms max-delay
-         :retry-attempts Long/MAX_VALUE}))))
+         :retry-attempts Long/MAX_VALUE})
+      (swap! (:state client) assoc :reconnect-task-id task-id))))
 
 (defn- attempt-reconnect! [client mode]
   (if-let [sch (or (:scheduler client) (nexus/get :scheduler))]
@@ -305,8 +316,7 @@
       (fatal-close? status)
       (do
         (swap! (:state client) assoc :running? false)
-        (when-let [sch (or (:scheduler client) (nexus/get :scheduler))]
-          (scheduler/cancel! sch reconnect-task-id))
+        (cancel-reconnect! client)
         (log/error :discord.gateway/fatal-close :payload payload :status status :reason reason))
 
       :else
@@ -404,8 +414,7 @@
   (log/info :discord.gateway/stopping)
   (swap! (:state client) assoc :running? false :status :disconnected)
   (cancel-heartbeat! client {:reason "stop"})
-  (when-let [sch (or (:scheduler client) (nexus/get :scheduler))]
-    (scheduler/cancel! sch reconnect-task-id))
+  (cancel-reconnect! client)
   (when-let [transport (:transport @(:state client))]
     (transport-close! transport))
   nil)
