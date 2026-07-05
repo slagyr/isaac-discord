@@ -54,6 +54,7 @@
                        "spec/isaac/module_activation_spec.clj"
                        "spec/isaac/comm/discord_spec.clj"
                        "spec/isaac/comm/discord/gateway_spec.clj"
+                       "spec/isaac/comm/discord/service_spec.clj"
                        "spec/isaac/comm/discord/rest_spec.clj"
                        "spec/isaac/server/discord_app_spec.clj"]}
 

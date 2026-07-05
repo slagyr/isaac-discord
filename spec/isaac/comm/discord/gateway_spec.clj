@@ -714,4 +714,23 @@
         ;; no "task already scheduled" exceptions lost
         (should-not (some (fn [e] (and (= :discord.gateway/error (:event e))
                                        (re-find #"task already scheduled" (str (:payload e)))))
-                          (log/get-entries)))))))
+                          (log/get-entries)))))
+
+    (it "schedules recovery when disconnected with no pending reconnect task"
+      (let [sent*      (atom [])
+          callbacks* (atom [])
+          connect!   (fn [_url callbacks]
+                       (swap! callbacks* conj callbacks)
+                       {:callback-driven? true
+                        :close!           (fn [] nil)
+                        :send!            (fn [payload] (swap! sent* conj payload))})
+          client     (sut/connect! {:token       "test-token"
+                                      :connect-ws! connect!})]
+        ((:on-message (first @callbacks*)) (json/generate-string {:op 10 :d {:heartbeat_interval 45000}}))
+        ((:on-message (first @callbacks*)) (json/generate-string {:op 0 :t "READY" :s 1 :d {:session_id "abc" :user {:id "bot"}}}))
+        (swap! (:state client) assoc :status :disconnected
+               :disconnect {:reason "stuck" :status 1006}
+               :reconnect-task-id nil)
+        (sut/check-liveness! client)
+        (should= 2 (count @callbacks*))
+        (should (contains? (log-events) :discord.gateway/stale-not-recovering))))))

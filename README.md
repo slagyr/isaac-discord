@@ -80,9 +80,13 @@ Recovery expectations:
 - a reader failure or transport error schedules exactly one reconnect path at a time
 - reconnect attempts resume or re-identify as appropriate, then return to `READY`
 - heartbeat/liveness scheduling is recreated on the recovered connection
-- `DiscordService` runs a watchdog: if the client stays disconnected for more
-  than 5 minutes, it logs `:discord.watchdog/stale-connection` at WARN and
-  forces a reconnect/re-registration
+- `DiscordService` runs a watchdog (also started when a Discord comm registers
+  on a running server, so hot-reload token adds are covered): every minute it
+  logs `:discord.watchdog/check` while disconnected and, after 5 minutes stale,
+  logs `:discord.watchdog/stale-connection` at WARN and forces a
+  reconnect/re-registration
+- if `on-close!` fails to schedule a reconnect, `:discord.gateway/stale-not-recovering`
+  nudges recovery on the next heartbeat tick or watchdog pass
 
 In short: `"Output closed"`, `reader-loop-failed`, opcode-7 reconnect storms,
 and similar transient websocket failures should self-heal within the normal

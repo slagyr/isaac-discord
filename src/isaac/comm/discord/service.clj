@@ -11,8 +11,12 @@
     [isaac.service.registry :as registry]))
 
 (defonce ^:private watchdog-stale-since (atom {}))
+(defonce ^:private watchdog-task-id* (atom nil))
+(def ^:private watchdog-task-id :discord.service/watchdog)
+(def ^:private watchdog-interval-ms 60000)
+(def ^:private watchdog-stale-threshold-ms (* 5 60 1000))
 
-(declare server-running? reconcile-registration!)
+(declare server-running? reconcile-registration! run-watchdog-check!)
 
 (deftype DiscordRegistration [comm-impl]
   Object
@@ -76,47 +80,67 @@
                                     {:allow-from-users  (get-in slice [:discord/allow-from :users])
                                      :allow-from-guilds (get-in slice [:discord/allow-from :guilds])})))))
 
-(defn- start-liveness-watchdog! [running?* task-id*]
-  (when-let [sch (nexus/get :scheduler)]
-    (let [id (scheduler/every! sch 60000
-                               (fn [_]
-                                 (when @running?*
-                                   (doseq [reg (registry/registrations-for :discord)]
-                                     (try
-                                       (when-let [comm-impl (.-comm-impl reg)]
-                                         (when-let [current (:client (discord/client comm-impl))]
-                                           (let [key (System/identityHashCode current)
-                                                 now (System/currentTimeMillis)]
-                                             (if (gateway/connected? current)
-                                               (swap! watchdog-stale-since dissoc key)
-                                               (let [since (or (get @watchdog-stale-since key)
-                                                               (do (swap! watchdog-stale-since assoc key now)
-                                                                   now))]
-                                                 (when (> (- now since) (* 5 60 1000))
-                                                   (log/warn :discord.watchdog/stale-connection
-                                                             :duration-ms (- now since)
-                                                             :forcing-reconnect true)
-                                                   (gateway/stop! current)
-                                                   (reset! (.-conn comm-impl) nil)
-                                                   (swap! watchdog-stale-since dissoc key)
-                                                   (when (server-running?)
-                                                     (reconcile-registration! reg))))))))
-                                       (catch Exception e
-                                         (log/ex :discord.watchdog/check-failed e)))))))]
-      (reset! task-id* id))))
+(defn- force-registration-reconnect! [reg comm-impl current]
+  (log/warn :discord.watchdog/stale-connection
+            :forcing-reconnect true)
+  (gateway/stop! current)
+  (reset! (.-conn comm-impl) nil)
+  (when (server-running?)
+    (reconcile-registration! reg)))
 
-(deftype DiscordService [running?* watchdog-task-id*]
+(defn- run-watchdog-check! []
+  (when (server-running?)
+    (doseq [reg (registry/registrations-for :discord)]
+      (try
+        (when-let [comm-impl (.-comm-impl reg)]
+          (when-let [current (:client (discord/client comm-impl))]
+            (let [key   (System/identityHashCode current)
+                  now   (System/currentTimeMillis)
+                  state @(:state current)]
+              (gateway/check-liveness! current)
+              (if (gateway/connected? current)
+                (swap! watchdog-stale-since dissoc key)
+                (let [since (or (get @watchdog-stale-since key)
+                                (do (swap! watchdog-stale-since assoc key now)
+                                    now))
+                      age   (- now since)]
+                  (log/info :discord.watchdog/check
+                            :connected false
+                            :status (:status state)
+                            :stale-ms age)
+                  (when (> age watchdog-stale-threshold-ms)
+                    (swap! watchdog-stale-since dissoc key)
+                    (force-registration-reconnect! reg comm-impl current)))))))
+        (catch Exception e
+          (log/ex :discord.watchdog/check-failed e))))))
+
+(defn- ensure-liveness-watchdog! []
+  (if-let [sch (nexus/get :scheduler)]
+    (do
+      (scheduler/cancel! sch watchdog-task-id)
+      (scheduler/schedule! sch {:id      watchdog-task-id
+                                :trigger {:kind :interval :ms watchdog-interval-ms}
+                                :handler (fn [_] (run-watchdog-check!))})
+      (reset! watchdog-task-id* watchdog-task-id)
+      (log/info :discord.watchdog/started :interval-ms watchdog-interval-ms))
+    (log/warn :discord.watchdog/no-scheduler
+              :reason "nexus scheduler unavailable; stale gateway recovery disabled")))
+
+(defn- stop-liveness-watchdog! []
+  (when-let [sch (nexus/get :scheduler)]
+    (scheduler/cancel! sch watchdog-task-id))
+  (reset! watchdog-task-id* nil)
+  (reset! watchdog-stale-since {}))
+
+(deftype DiscordService [running?*]
   protocol/Service
   (start [_]
     (reset! running?* true)
     (doseq [reg (registry/registrations-for :discord)]
       (connect-registration! reg))
-    (start-liveness-watchdog! running?* watchdog-task-id*))
+    (ensure-liveness-watchdog!))
   (stop [_]
-    (when-let [id @watchdog-task-id*]
-      (when-let [sch (nexus/get :scheduler)]
-        (scheduler/cancel! sch id))
-      (reset! watchdog-task-id* nil))
+    (stop-liveness-watchdog!)
     (doseq [reg (registry/registrations-for :discord)]
       (disconnect-registration! reg))
     (reset! running?* false)))
@@ -149,6 +173,8 @@
   (let [reg (make-registration comm-impl)]
     (registry/register! :discord reg)
     (on-register! reg)
+    (when (server-running?)
+      (ensure-liveness-watchdog!))
     reg))
 
 (defn update-comm! [comm-impl old-slice new-slice]
@@ -163,4 +189,4 @@
     (registry/deregister! :discord reg)))
 
 (defmethod factory/create :discord [_ _ctx]
-  (->DiscordService (atom false) (atom nil)))
+  (->DiscordService (atom false)))

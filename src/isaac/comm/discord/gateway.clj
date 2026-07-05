@@ -65,7 +65,8 @@
         :session_id (:session-id @(:state client))
         :seq        (:sequence @(:state client))}})
 
-(declare start-reader-loop! stop! on-close!)
+(declare start-reader-loop! stop! on-close! attempt-reconnect!
+         reconnect-mode-for-close close-status ensure-recovery!)
 
 (defn- send-identify! [client]
   (let [payload (identify-payload (:token client))]
@@ -82,12 +83,32 @@
 (defn- heartbeat-ack-missing? [state]
   (true? (:heartbeat-ack-pending? state)))
 
+(defn- ensure-recovery!
+  "When the client is still marked running but not READY and no reconnect is
+   pending, schedule a reconnect. Catches cases where on-close! failed to
+   register a recovery task (reader-loop-failed storms, scheduler races)."
+  [client]
+  (let [state @(:state client)]
+    (when (and (:running? state)
+               (= :disconnected (:status state))
+               (some? (:disconnect state))
+               (nil? (:reconnect-task-id state))
+               (not (:reconnect-in-flight? state)))
+      (log/warn :discord.gateway/stale-not-recovering
+                :status (:status state)
+                :reason (get-in state [:disconnect :reason])
+                :forcing-reconnect true)
+      (attempt-reconnect! client (or (get-in state [:disconnect :mode])
+                                     (reconnect-mode-for-close (close-status (:disconnect state)))
+                                     :identify)))))
+
 (defn- log-liveness! [client]
   (let [state      @(:state client)
         interval   (:heartbeat-interval-ms state)
         ack-at     (:last-heartbeat-ack-at-ms state)
         now        (now-ms)
         ack-age-ms (when ack-at (- now ack-at))]
+    (ensure-recovery! client)
     (if (and ack-age-ms interval (> ack-age-ms (* 2 interval)))
       (log/warn :discord.gateway/liveness-stale
                 :last-ack-ms-ago ack-age-ms
@@ -289,7 +310,11 @@
     (schedule-reconnect! client mode)
     (do
       (log/info :discord.gateway/reconnect-attempt :mode mode)
-      (do-reconnect! client mode))))
+      (swap! (:state client) assoc :reconnect-in-flight? true)
+      (try
+        (do-reconnect! client mode)
+        (finally
+          (swap! (:state client) dissoc :reconnect-in-flight?))))))
 
 (defn- close-status [payload]
   (or (:status payload) (:code payload) (:status-code payload)))
@@ -305,24 +330,36 @@
   (or (= 4004 status)
       (and (some? status) (>= status 4010))))
 
+(defn- reconnect-after-close! [client payload status reason]
+  (let [mode (or (:mode payload) (reconnect-mode-for-close status))]
+    (log/warn :discord.gateway/disconnected :payload payload :status status :reason reason :mode mode)
+    (try
+      (attempt-reconnect! client mode)
+      (catch Exception e
+        (log/ex :discord.gateway/reconnect-schedule-failed e :mode mode :reason reason)
+        (ensure-recovery! client)))))
+
 (defn- on-close! [client payload]
   (let [status (close-status payload)
         reason (:reason payload)]
-    (cancel-heartbeat! client {:reason (or reason "connection-closed")})
-    (when-let [transport (:transport @(:state client))]
-      (transport-close! transport))
-    (swap! (:state client) assoc :status :disconnected :disconnect payload :transport nil)
-    (cond
-      (fatal-close? status)
-      (do
-        (swap! (:state client) assoc :running? false)
-        (cancel-reconnect! client)
-        (log/error :discord.gateway/fatal-close :payload payload :status status :reason reason))
-
-      :else
-      (let [mode (or (:mode payload) (reconnect-mode-for-close status))]
-        (log/warn :discord.gateway/disconnected :payload payload :status status :reason reason :mode mode)
-        (attempt-reconnect! client mode)))))
+    (try
+      (cancel-heartbeat! client {:reason (or reason "connection-closed")})
+      (when-let [transport (:transport @(:state client))]
+        (try
+          (transport-close! transport)
+          (catch Exception e
+            (log/ex :discord.gateway/transport-close-failed e :reason reason))))
+      (swap! (:state client) assoc :status :disconnected :disconnect payload :transport nil)
+      (if (fatal-close? status)
+        (do
+          (swap! (:state client) assoc :running? false)
+          (cancel-reconnect! client)
+          (log/error :discord.gateway/fatal-close :payload payload :status status :reason reason))
+        (reconnect-after-close! client payload status reason))
+      (catch Exception e
+        (log/ex :discord.gateway/on-close-failed e :reason reason)
+        (when-not (fatal-close? status)
+          (ensure-recovery! client))))))
 
 (defn- start-reader-loop! [client transport]
   (when-not (:callback-driven? transport)
@@ -359,7 +396,11 @@
             nil))
         (catch Exception e
           (log/ex :discord.gateway/reader-loop-failed e)
-          (on-close! client {:reason "reader-loop-failed" :status 1006}))))))
+          (try
+            (on-close! client {:reason "reader-loop-failed" :status 1006})
+            (catch Exception close-e
+              (log/ex :discord.gateway/reader-close-failed close-e)
+              (ensure-recovery! client))))))))
 
 (defn connect!
   [{:keys [token url connect-ws! scheduler allow-from-users allow-from-guilds on-accepted-message!
@@ -397,6 +438,11 @@
 (defn update-allow-from! [client {:keys [allow-from-users allow-from-guilds]}]
   (reset! (:allow-from-users client) (normalize-id-set allow-from-users))
   (reset! (:allow-from-guilds client) (normalize-id-set allow-from-guilds)))
+
+(defn check-liveness!
+  "Service-level watchdog hook: nudge recovery when a running client is not READY."
+  [client]
+  (ensure-recovery! client))
 
 (defn connected? [client]
   (= :ready (:status @(:state client))))
