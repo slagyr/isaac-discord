@@ -82,11 +82,17 @@
   (contains? (:discord/channels (normalize-discord-cfg discord-cfg))
              (str channel-id)))
 
+(defn- channel-id-shaped? [s]
+  (and (not (str/blank? s))
+       (re-matches #"^\d{17,20}$" s)))
+
 (defn resolve-target-channel
   "Resolve a Discord outbound target to a channel snowflake ID.
    When target matches a :discord/channels key, returns it unchanged.
    When target matches a channel :name, returns that channel's ID.
-   Otherwise returns target unchanged (assumed to already be an ID)."
+   When :discord/channels is configured and target is a nonblank string that
+   matches neither a key nor a :name, returns nil (unknown target).
+   When no channels are configured, returns target unchanged (assumed ID)."
   [discord-cfg target]
   (let [discord-cfg (normalize-discord-cfg discord-cfg)
         target-str  (cond
@@ -94,21 +100,24 @@
                       (keyword? target) (name target)
                       :else (str target))
         channels    (let [c (get discord-cfg :discord/channels)]
-                      (if (map? c) c {}))]
+                      (if (map? c) c {}))
+        channels?   (and (map? channels) (seq channels))]
     (cond
-      (str/blank? target-str) target-str
+      (str/blank? target-str) nil
 
-      (and (map? channels)
-           (or (contains? channels target-str)
-               (contains? channels (keyword target-str))))
-      target-str
+      (or (contains? channels target-str)
+          (contains? channels (keyword target-str)))
+      (normalize-channel-key target-str)
 
       :else
       (or (some (fn [[channel-id channel-cfg]]
                   (when (= target-str (:name channel-cfg))
                     (normalize-channel-key channel-id)))
                 channels)
-            target-str))))
+            (when-not channels?
+              target-str)
+            (when (channel-id-shaped? target-str)
+              target-str)))))
 
 (def ^:private frequency-keys
   #{:session :session-tags :crew :reach :prefer :create
@@ -297,15 +306,20 @@
           (log/warn :discord.reply/unmapped-session :session session-key)))))
   (send! [_ record]
     (let [dcfg        (live-discord-cfg state-dir cfg)
-          channel-id  (resolve-target-channel dcfg (:discord/target record))
-          response    (rest/post-message! {:channel-id  channel-id
-                                           :content     (:content record)
-                                           :message-cap (:discord/message-cap dcfg)
-                                           :token       (:discord/token dcfg)})]
-      (cond
-        (< (:status response 0) 400)        {:ok true}
-        (rest/transient-response? response)  {:ok false :transient? true}
-        :else                                {:ok false :transient? false})))
+          raw-target  (or (:discord/target record) (:target record))
+          channel-id  (resolve-target-channel dcfg raw-target)]
+      (if (str/blank? channel-id)
+        (do
+          (log/warn :discord.send/missing-target :target raw-target)
+          {:ok false :transient? false})
+        (let [response (rest/post-message! {:channel-id  channel-id
+                                            :content     (:content record)
+                                            :message-cap (:discord/message-cap dcfg)
+                                            :token       (:discord/token dcfg)})]
+          (cond
+            (< (:status response 0) 400)       {:ok true}
+            (rest/transient-response? response) {:ok false :transient? true}
+            :else                               {:ok false :transient? false})))))
   api/Reconfigurable
   (on-load [this slice]
     (reset! cfg slice)

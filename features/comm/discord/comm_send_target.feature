@@ -31,3 +31,30 @@ Feature: Discord comm_send target resolves by channel name
       | method                | POST           |
       | headers.Authorization | Bot test-token |
       | body.content          | All clear.     |
+
+  Scenario: send! posts using generic comm delivery :target channel id
+    When Discord comm send! is invoked with:
+      | path    | value        |
+      | target  | C999         |
+      | content | Attention!   |
+    Then a Discord outbound HTTP request to "https://discord.com/api/v10/channels/C999/messages" matches:
+      | method                | POST           |
+      | headers.Authorization | Bot test-token |
+      | body.content          | Attention!     |
+
+  Scenario: send! resolves generic :target as configured channel name
+    When Discord comm send! is invoked with:
+      | path    | value         |
+      | target  | announcements |
+      | content | Guard fired.  |
+    Then a Discord outbound HTTP request to "https://discord.com/api/v10/channels/C999/messages" matches:
+      | method                | POST           |
+      | headers.Authorization | Bot test-token |
+      | body.content          | Guard fired.   |
+
+  Scenario: send! does not HTTP-post when generic :target is an unknown channel name
+    When Discord comm send! is invoked with:
+      | path    | value       |
+      | target  | bogus-name  |
+      | content | oops        |
+    Then no Discord outbound HTTP request was made

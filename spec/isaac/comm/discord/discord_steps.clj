@@ -570,8 +570,12 @@
 (defn discord-outbound-http-request-to-url-matches [url table]
   (providers-steps/outbound-http-request-to-url-matches url table))
 
+(defn no-discord-outbound-http-request-was-made []
+  (g/should= [] (or (g/get :outbound-http-requests) [])))
+
 (defn discord-comm-send! [table]
-  (let [record (reduce (fn [acc row]
+  (let [_ (g/assoc! :outbound-http-requests [])
+        record (reduce (fn [acc row]
                          (let [row-map (zipmap (:headers table) row)]
                            (assoc acc (keyword (get row-map "path"))
                                     (parse-value (get row-map "value")))))
@@ -706,5 +710,8 @@
   isaac.comm.discord.discord-steps/discord-outbound-http-request-to-url-matches
   "Matches a stubbed outbound HTTP request recorded by discord comm steps
    (same DSL as provider HTTP assertions).")
+
+(defthen "no Discord outbound HTTP request was made"
+  isaac.comm.discord.discord-steps/no-discord-outbound-http-request-was-made)
 
 ;; endregion ^^^^^ Routing ^^^^^
