@@ -51,3 +51,10 @@ Feature: Discord comm_send target resolves by channel name
       | method                | POST           |
       | headers.Authorization | Bot test-token |
       | body.content          | Guard fired.   |
+
+  Scenario: send! does not HTTP-post when generic :target is an unknown channel name
+    When Discord comm send! is invoked with:
+      | path    | value       |
+      | target  | bogus-name  |
+      | content | oops        |
+    Then no Discord outbound HTTP request was made

@@ -57,11 +57,15 @@
                {:discord/channels {:C999 {:name "announcements"}}}
                "announcements")))
 
-  (it "falls back to the provided target when no channel matches"
-    (should= "D111"
+  (it "returns nil for unknown target when channels are configured"
+    (should= nil
              (sut/resolve-target-channel
                {:discord/channels {"C999" {:name "announcements"}}}
-               "D111"))))
+               "bogus-name")))
+
+  (it "returns the target when no channels are configured"
+    (should= "D111"
+             (sut/resolve-target-channel {} "D111"))))
 
 (describe "Discord delivery record shape"
 
@@ -145,6 +149,26 @@
                             (log/get-entries))]
             (should= {:level :warn :event :discord.send/missing-target}
                      (select-keys entry [:level :event]))))))
+
+  (it "send! rejects unknown channel name without HTTP when channels are configured"
+    (log/set-output! :memory)
+    (log/clear-entries!)
+    (let [posted?     (atom false)
+          integration (sut/->DiscordIntegration
+                         test-dir nil
+                         (atom {:discord/token    "test-token"
+                                :discord/channels {"C999" {:name "announcements"}}})
+                         (atom nil))]
+      (nexus/-with-nested-nexus {:fs (fs/mem-fs)}
+        (with-redefs [loader/load-config-result (stub-config-result {})
+                      rest/post-message!       (fn [_] (reset! posted? true) {:status 404})]
+          (should= {:ok false :transient? false}
+                   (comm/send! integration {:content "oops" :target "bogus-name"}))
+          (should (not @posted?))
+          (let [entry (some #(when (= :discord.send/missing-target (:event %)) %)
+                            (log/get-entries))]
+            (should= {:level :warn :event :discord.send/missing-target :target "bogus-name"}
+                     (select-keys entry [:level :event :target])))))))
 
   (it "send! resolves ${VAR} discord/token through the foundation config loader"
     (let [captured    (atom nil)
