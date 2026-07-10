@@ -297,15 +297,20 @@
           (log/warn :discord.reply/unmapped-session :session session-key)))))
   (send! [_ record]
     (let [dcfg        (live-discord-cfg state-dir cfg)
-          channel-id  (resolve-target-channel dcfg (:discord/target record))
-          response    (rest/post-message! {:channel-id  channel-id
-                                           :content     (:content record)
-                                           :message-cap (:discord/message-cap dcfg)
-                                           :token       (:discord/token dcfg)})]
-      (cond
-        (< (:status response 0) 400)        {:ok true}
-        (rest/transient-response? response)  {:ok false :transient? true}
-        :else                                {:ok false :transient? false})))
+          raw-target  (or (:discord/target record) (:target record))
+          channel-id  (resolve-target-channel dcfg raw-target)]
+      (if (str/blank? channel-id)
+        (do
+          (log/warn :discord.send/missing-target :target raw-target)
+          {:ok false :transient? false})
+        (let [response (rest/post-message! {:channel-id  channel-id
+                                            :content     (:content record)
+                                            :message-cap (:discord/message-cap dcfg)
+                                            :token       (:discord/token dcfg)})]
+          (cond
+            (< (:status response 0) 400)       {:ok true}
+            (rest/transient-response? response) {:ok false :transient? true}
+            :else                               {:ok false :transient? false})))))
   api/Reconfigurable
   (on-load [this slice]
     (reset! cfg slice)
