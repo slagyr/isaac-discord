@@ -1,45 +1,121 @@
-{:paths ["src" "spec"]
+{:paths ["src" "spec" "feature-steps"]
 
+ ;; Native babashka runners via isaac-foundation-test-support (isaac-x5ru / isaac-fvzo).
+ ;; Keep the test-support :git/sha in sync with the foundation commit that
+ ;; ships bb.test-tasks under spec-support/src/bb/.
+ ;;
+ ;; Dev-local switch (preserved from pre-xapx bb.edn): when ISAAC_GIT is unset
+ ;; AND a sibling ../isaac-agent checkout exists, jvm-* tasks use the
+ ;; :dev-local:spec / :dev-local:features aliases so local sibling edits land
+ ;; without pushing. CI sets ISAAC_GIT=1 and always uses the pinned git aliases.
+ ;;
+ ;; Native bb.spec runs the babashka-compatible subset. Specs that require
+ ;; clout/instaparse (server HTTP routing — IHashEq protocol not in SCI) or
+ ;; exercise JVM-only scheduler schema behavior are routed to jvm-spec.
+ ;; Features load server.app → clout, so they stay on jvm-features.
+ ;; Documented under bean isaac-fvzo.
  :deps {com.cleancoders.c3kit/apron {:mvn/version "3.0.0"}
+        cheshire/cheshire {:mvn/version "5.13.0"}
+        org.babashka/http-client {:mvn/version "0.4.22"}
+        speclj/speclj {:mvn/version "3.13.0"}
+        babashka/process {:mvn/version "0.5.22"}
+        io.github.slagyr/gherclj {:git/tag "v1.3.0" :git/sha "9c3bb1d"}
+        io.github.cleancoders/c3kit-wire {:git/tag "2.5.1" :git/sha "1fae444"}
+        io.github.slagyr/isaac-foundation {:git/url "https://github.com/slagyr/isaac-foundation.git"
+                                           :git/sha "43cf46e00087bf066a9e065ccc3d48dd2814ac23"}
+        io.github.slagyr/isaac-foundation-spec {:git/url "https://github.com/slagyr/isaac-foundation.git"
+                                                :git/sha "43cf46e00087bf066a9e065ccc3d48dd2814ac23"
+                                                :deps/root "spec"}
         io.github.slagyr/isaac-foundation-test-support {:git/url "https://github.com/slagyr/isaac-foundation.git"
-                                                        :git/sha "44e824c6eded90301ed1aba8ed3948c66725ee43"
-                                                        :deps/root "spec-support"}}
+                                                        :git/sha "43cf46e00087bf066a9e065ccc3d48dd2814ac23"
+                                                        :deps/root "spec-support"}
+        marigold.bridge/marigold.bridge {:git/url "https://github.com/slagyr/isaac-foundation.git"
+                                         :git/sha "43cf46e00087bf066a9e065ccc3d48dd2814ac23"
+                                         :deps/root "modules/marigold.bridge"}
+        marigold.longwave/marigold.longwave {:git/url "https://github.com/slagyr/isaac-foundation.git"
+                                             :git/sha "43cf46e00087bf066a9e065ccc3d48dd2814ac23"
+                                             :deps/root "modules/marigold.longwave"}
+        io.github.slagyr/isaac-agent {:git/url "https://github.com/slagyr/isaac-agent.git"
+                                      :git/sha "44b55e341ac8ab9626400188836c80ee2b41541e"}
+        io.github.slagyr/isaac-agent-spec {:git/url "https://github.com/slagyr/isaac-agent.git"
+                                           :git/sha "44b55e341ac8ab9626400188836c80ee2b41541e"
+                                           :deps/root "spec"}
+        io.github.slagyr/isaac-server {:git/url "https://github.com/slagyr/isaac-server.git"
+                                       :git/sha "eb51cc48b8964dabb678086ac36051a86d94c03a"}
+        io.github.slagyr/isaac-server-spec {:git/url "https://github.com/slagyr/isaac-server.git"
+                                            :git/sha "eb51cc48b8964dabb678086ac36051a86d94c03a"
+                                            :deps/root "spec"}
+        io.github.slagyr/isaac-server-test-support {:git/url "https://github.com/slagyr/isaac-server.git"
+                                                    :git/sha "eb51cc48b8964dabb678086ac36051a86d94c03a"
+                                                    :deps/root "spec-support"}}
 
  :tasks
  {config-bypass-lint {:doc "Fail on raw config slurp/read outside isaac.config.* (isaac-foundation-test-support)"
                       :requires ([isaac.foundation.config-bypass-lint :as lint])
                       :task (apply lint/lint! (or (seq *command-line-args*) ["src"]))}
 
-  spec     {:doc  "Run speclj specs (pass file/dir to narrow)"
+  ;; Babashka-compatible unit specs (no clout/instaparse, no server.app).
+  ;; JVM-only (clout/IHashEq or server HTTP surface):
+  ;;   - spec/isaac/module_activation_spec.clj
+  ;;   - spec/isaac/comm/discord/service_spec.clj
+  ;;   - spec/isaac/server/discord_app_spec.clj
+  ;; JVM-only (scheduler delay-trigger schema under SCI):
+  ;;   - spec/isaac/comm/discord/gateway_spec.clj
+  ;; Native:
+  ;;   - spec/isaac/comm/discord_spec.clj
+  ;;   - spec/isaac/comm/discord/rest_spec.clj
+  spec {:doc  "Run babashka-compatible speclj specs natively (pass file/dir to narrow)"
+        :requires ([bb.test-tasks :as tests]
+                   [babashka.process :as process])
+        ;; speclj calls System/exit; run as a subprocess so exit 0 does not
+        ;; unwind the bb task (same pattern as bb.test-tasks/run-ci!).
+        :task (let [args (if (seq *command-line-args*)
+                           (vec *command-line-args*)
+                           ["spec/isaac/comm/discord_spec.clj"
+                            "spec/isaac/comm/discord/rest_spec.clj"])
+                    cmd  (into ["bb" "-e"
+                                "(require '[bb.test-tasks :as t]) (apply t/run-spec! *command-line-args*)"
+                                "--"]
+                               args)
+                    {:keys [exit]} (apply process/shell cmd)]
+                (when (pos? exit) (System/exit exit)))}
+
+  jvm-spec {:doc  "Run ALL speclj specs via clojure -M (JVM; honors dev-local switch)"
+            :requires ([bb.test-tasks :as tests])
             :task (let [dev-local? (and (not (System/getenv "ISAAC_GIT"))
-                                        (.exists (java.io.File.
-                                                   "../isaac-agent/src/isaac/session/frequencies.clj")))
+                                        (babashka.fs/exists?
+                                          "../isaac-agent/src/isaac/session/frequencies.clj"))
                         alias      (if dev-local? ":dev-local:spec" ":spec")]
-                    (if (seq *command-line-args*)
-                      (apply shell "clojure" (str "-M" alias) *command-line-args*)
-                      (shell "clojure" (str "-M" alias))))}
+                    (binding [tests/*jvm-spec-cmd* ["clojure" (str "-M" alias)]]
+                      (apply tests/run-jvm-spec! *command-line-args*)))}
 
-  spec-jvm {:doc  "Alias for server app spec (same JVM classpath as :spec)"
-            :task (let [dev-local? (and (not (System/getenv "ISAAC_GIT"))
-                                        (.exists (java.io.File.
-                                                   "../isaac-agent/src/isaac/session/frequencies.clj")))
-                        alias      (if dev-local? ":dev-local:spec" ":spec")]
-                    (apply shell "clojure" (str "-M" alias)
-                           "spec/isaac/server/discord_app_spec.clj"))}
+  ;; Kept for callers that still invoke `bb spec-jvm` (discord_app_spec focus).
+  spec-jvm {:doc  "JVM-only: discord_app_spec via the same classpath as jvm-spec"
+            :task (apply shell "bb" "jvm-spec"
+                         (into ["spec/isaac/server/discord_app_spec.clj"]
+                               *command-line-args*))}
 
-  features {:doc  "Run gherclj feature specs (excludes @slow and @wip)"
-            :task (let [dev-local? (and (not (System/getenv "ISAAC_GIT"))
-                                        (.exists (java.io.File.
-                                                   "../isaac-agent/src/isaac/session/frequencies.clj")))
-                        alias      (if dev-local? ":dev-local:features" ":features")]
-                    (babashka.fs/delete-tree "target")
-                    (apply shell "clojure" (str "-M" alias) *command-line-args*))}
+  features {:doc  "Feature specs load server.app → clout/instaparse (JVM-only under SCI).
+                   Delegates to jvm-features so `bb features` / muscle memory stay stable."
+            :task (apply shell "bb" "jvm-features" *command-line-args*)}
 
-  ci       {:doc  "Run all specs and features"
-            :task (do (run 'config-bypass-lint)
-                      (shell "bb" "spec")
-                      (shell "bb" "features"))}
+  jvm-features {:doc  "Run gherclj via clojure -M (JVM; honors dev-local switch)"
+                :requires ([bb.test-tasks :as tests])
+                :task (let [dev-local? (and (not (System/getenv "ISAAC_GIT"))
+                                            (babashka.fs/exists?
+                                              "../isaac-agent/src/isaac/session/frequencies.clj"))
+                            alias      (if dev-local? ":dev-local:features" ":features")]
+                        (binding [tests/*jvm-features-cmd* ["clojure" (str "-M" alias)]]
+                          (apply tests/run-jvm-features! *command-line-args*)))}
 
-  clean    {:doc  "Remove generated and test artifacts"
-            :task (do (babashka.fs/delete-tree "target")
-                      (println "Cleaned target/"))}}}
+  ;; Full gate: native subset + full JVM suite (specs + features). Parity with
+  ;; pre-xapx `bb ci` (which was 100% JVM) plus a fast native smoke.
+  ci {:doc  "Native bb-compatible specs + full JVM specs + JVM features"
+      :task (do (run 'config-bypass-lint)
+                (shell "bb" "spec")
+                (shell "bb" "jvm-spec")
+                (shell "bb" "jvm-features"))}
+
+  clean {:doc  "Remove generated and test artifacts"
+         :task (do (babashka.fs/delete-tree "target")
+                   (println "Cleaned target/"))}}}
