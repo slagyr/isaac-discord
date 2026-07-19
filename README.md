@@ -1,10 +1,20 @@
-# isaac-discord
+# 🍏 Isaac Discord 💬
 
-[![CI Tests](https://github.com/slagyr/isaac-discord/actions/workflows/ci.yml/badge.svg)](https://github.com/slagyr/isaac-discord/actions/workflows/ci.yml)
+<img align="left" width="200" src="https://raw.githubusercontent.com/slagyr/isaac-discord/main/isaac-discord.png" alt="isaac-discord" style="margin-right: 20px; margin-bottom: 10px;">
 
 A [Discord](https://discord.com) comm module for [Isaac](https://github.com/slagyr/isaac),
 the AI assistant framework. It bridges Discord gateway events to Isaac sessions,
 allowing Isaac-powered agents to receive messages from and reply to Discord channels.
+
+<br>
+
+[![CI Tests](https://github.com/slagyr/isaac-discord/actions/workflows/ci.yml/badge.svg)](https://github.com/slagyr/isaac-discord/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Clojure](https://img.shields.io/badge/Clojure-1.11%2B-blue?logo=clojure)](https://clojure.org)
+[![Babashka](https://img.shields.io/badge/Babashka-1.3%2B-red?logo=clojure)](https://babashka.org)
+[![Java](https://img.shields.io/badge/Java-21%2B-orange?logo=openjdk)](https://openjdk.org/)
+
+<br clear="left">
 
 ## Features
 
