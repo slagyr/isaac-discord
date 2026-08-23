@@ -9,7 +9,6 @@
     [isaac.comm.discord.rest :as rest]
     [isaac.comm.discord.test-clock :as test-clock]
     [isaac.comm.protocol :as comm]
-    [isaac.config.api :as config]
     [isaac.config.loader :as loader]
     [isaac.fs :as fs]
     [isaac.logger :as log]
@@ -21,6 +20,9 @@
 
 (defn- stub-config-result [cfg]
   (fn [& _] {:config cfg :errors [] :warnings [] :missing-config? false :sources []}))
+
+(defn- fake-gateway [status]
+  {:state (atom {:status status})})
 
 (def base-config
   {:comms     {:discord {:crew "main"}}
@@ -148,7 +150,7 @@
           (let [entry (some #(when (= :discord.send/missing-target (:event %)) %)
                             (log/get-entries))]
             (should= {:level :warn :event :discord.send/missing-target}
-                     (select-keys entry [:level :event]))))))
+                     (select-keys entry [:level :event])))))))
 
   (it "send! rejects unknown channel name without HTTP when channels are configured"
     (log/set-output! :memory)
@@ -170,23 +172,65 @@
             (should= {:level :warn :event :discord.send/missing-target :target "bogus-name"}
                      (select-keys entry [:level :event :target])))))))
 
-  (it "send! resolves ${VAR} discord/token through the foundation config loader"
+  (it "send! defers without HTTP when the gateway client is present but not ready"
+    (log/set-output! :memory)
+    (log/clear-entries!)
+    (let [posted?     (atom false)
+          integration (sut/->DiscordIntegration
+                        test-dir nil
+                        (atom {:discord/token "test-token"})
+                        (atom {:client (fake-gateway :disconnected)}))]
+      (nexus/-with-nested-nexus {:fs (fs/mem-fs)}
+        (with-redefs [loader/load-config-result (stub-config-result {})
+                      rest/post-message!       (fn [_] (reset! posted? true) {:status 200})]
+          (should= {:ok false :transient? true :defer? true}
+                   (comm/send! integration {:content "Hold the watch." :target "C999"}))
+          (should-not @posted?)
+          (let [entry (some #(when (= :discord.send/gateway-unavailable (:event %)) %)
+                            (log/get-entries))]
+            (should= {:level     :warn
+                      :event     :discord.send/gateway-unavailable
+                      :target    "C999"
+                      :channelId "C999"
+                      :status    :disconnected}
+                     (select-keys entry [:level :event :target :channelId :status])))))))
+
+  (it "send! posts while the gateway client is ready"
+    (let [captured    (atom nil)
+          integration (sut/->DiscordIntegration
+                        test-dir nil
+                        (atom {:discord/token "test-token"})
+                        (atom {:client (fake-gateway :ready)}))]
+      (nexus/-with-nested-nexus {:fs (fs/mem-fs)}
+        (with-redefs [loader/load-config-result (stub-config-result {})
+                      rest/post-message!       (fn [opts]
+                                                 (reset! captured opts)
+                                                 {:status 200 :body "{}"})]
+          (should= {:ok true}
+                   (comm/send! integration {:content "Lantern trimmed." :target "C999"}))
+          (should= {:channel-id "C999" :content "Lantern trimmed." :message-cap nil :token "test-token"}
+                   @captured)))))
+
+  (it "send! treats a missing HTTP status as a transient failure"
+    (let [integration (sut/->DiscordIntegration test-dir nil (atom {:discord/token "test-token"}) (atom nil))]
+      (nexus/-with-nested-nexus {:fs (fs/mem-fs)}
+        (with-redefs [loader/load-config-result (stub-config-result {})
+                      rest/post-message!       (fn [_] {})]
+          (should= {:ok false :transient? true}
+                   (comm/send! integration {:content "Hold the watch." :target "C999"}))))))
+
+  (it "send! reads discord/token from loaded config when the comm atom is empty"
     (let [captured    (atom nil)
           integration (sut/->DiscordIntegration test-dir nil (atom {}) (atom nil))]
       (nexus/-with-nested-nexus {:fs (fs/mem-fs)}
-        (fs/mkdirs (fs/instance) (str test-dir "/config"))
-        (fs/spit (fs/instance) (str test-dir "/config/isaac.edn")
-                 (pr-str {:comms {:discord {:discord/token "${DISCORD_BOT_TOKEN}"}}}))
-        (config/set-env-override! "DISCORD_BOT_TOKEN" "resolved-live-token")
-        (try
-          (with-redefs [rest/post-message! (fn [opts]
-                                             (reset! captured opts)
-                                             {:status 200 :body "{}"})]
-            (should= {:ok true}
-                     (comm/send! integration {:content "hello" :discord/target "C999"}))
-            (should= {:channel-id "C999" :content "hello" :message-cap nil :token "resolved-live-token"}
-                     @captured))
-          (finally (config/clear-env-overrides!))))))))
+        (with-redefs [loader/load-config-result (stub-config-result {:comms {:discord {:discord/token "resolved-live-token"}}})
+                      rest/post-message!       (fn [opts]
+                                                 (reset! captured opts)
+                                                 {:status 200 :body "{}"})]
+          (should= {:ok true}
+                   (comm/send! integration {:content "hello" :discord/target "C999"}))
+          (should= {:channel-id "C999" :content "hello" :message-cap nil :token "resolved-live-token"}
+                   @captured))))))
 
 (describe "Discord comm"
 

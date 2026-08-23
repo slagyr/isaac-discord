@@ -279,6 +279,21 @@
 
 (declare connect!)
 
+(defn- http-send-result [response]
+  (let [status (:status response 0)]
+    (cond
+      (<= 200 status 299)                 {:ok true}
+      (or (rest/transient-response? response)
+          (zero? status))                 {:ok false :transient? true}
+      :else                               {:ok false :transient? false})))
+
+(defn- defer-for-gateway [raw-target channel-id gw-client]
+  (log/warn :discord.send/gateway-unavailable
+            :target raw-target
+            :channelId channel-id
+            :status (:status @(:state gw-client)))
+  {:ok false :transient? true :defer? true})
+
 (deftype DiscordIntegration [state-dir connect-ws! cfg conn]
   api/Comm
   (on-turn-start [_ session-key _]
@@ -307,19 +322,23 @@
   (send! [_ record]
     (let [dcfg        (live-discord-cfg state-dir cfg)
           raw-target  (or (:discord/target record) (:target record))
-          channel-id  (resolve-target-channel dcfg raw-target)]
-      (if (str/blank? channel-id)
+          channel-id  (resolve-target-channel dcfg raw-target)
+          gw-client   (:client @conn)]
+      (cond
+        (str/blank? channel-id)
         (do
           (log/warn :discord.send/missing-target :target raw-target)
           {:ok false :transient? false})
-        (let [response (rest/post-message! {:channel-id  channel-id
-                                            :content     (:content record)
-                                            :message-cap (:discord/message-cap dcfg)
-                                            :token       (:discord/token dcfg)})]
-          (cond
-            (< (:status response 0) 400)       {:ok true}
-            (rest/transient-response? response) {:ok false :transient? true}
-            :else                               {:ok false :transient? false})))))
+
+        (and gw-client (not (gateway/connected? gw-client)))
+        (defer-for-gateway raw-target channel-id gw-client)
+
+        :else
+        (http-send-result
+          (rest/post-message! {:channel-id  channel-id
+                               :content     (:content record)
+                               :message-cap (:discord/message-cap dcfg)
+                               :token       (:discord/token dcfg)})))))
   api/Reconfigurable
   (on-load [this slice]
     (reset! cfg slice)
