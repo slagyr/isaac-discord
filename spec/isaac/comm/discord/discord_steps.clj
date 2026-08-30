@@ -30,6 +30,8 @@
 
 (helper! isaac.comm.discord.discord-steps)
 
+(def ^:private fail-subsequent* (atom false))
+
 (g/before-scenario
   (fn []
     ;; Full teardown between scenarios so state doesn't leak across examples
@@ -37,6 +39,7 @@
     ;; the service registry. service-runtime/stop-all! only deregisters service
     ;; *instances*, not the accumulated comm *registrations*, so without this a
     ;; prior scenario's stale registrations bleed into the next one.
+    (reset! fail-subsequent* false)
     (server-app/stop!)
     (nexus/reset!)
     (reset! service-registry/*registry* (service-registry/fresh-registry))
@@ -190,6 +193,8 @@
 
 (defn- make-connect-ws! [sent callbacks*]
   (fn [_url callbacks]
+    (when @fail-subsequent*
+      (throw (ex-info "network down" {:reason :discord-fail-subsequent})))
     (reset! callbacks* callbacks)
     {:callback-driven? true
      :close!           (fn [] nil)
@@ -493,6 +498,18 @@
     (test-clock/advance! (g/get :discord-clock) interval)
     (g/should (> (heartbeat-payload-count) before))))
 
+(defn discord-gateway-fails-subsequent []
+  (g/assoc! :auth-count-at-reconnect (auth-payload-count))
+  (reset! fail-subsequent* true))
+
+(defn discord-client-stopped []
+  (g/assoc! :auth-count-at-reconnect (auth-payload-count))
+  (when-let [client (active-client)]
+    (gateway/stop! client)))
+
+(defn discord-sends-no-further-auth []
+  (g/should= 0 (- (auth-payload-count) (or (g/get :auth-count-at-reconnect) 0))))
+
 (defn no-reconnect-failure-logged [text]
   (let [entries (log/get-entries)]
     (g/should-not (contains? (set (map :event entries)) :discord.gateway/reader-loop-failed))
@@ -679,6 +696,19 @@
 (defwhen "the reconnect delay passes" isaac.comm.discord.discord-steps/reconnect-delay-passes
   "Advances the virtual clock past the gateway reconnect delay so the
    scheduled reconnect fires (do-reconnect! opens the new socket).")
+
+(defgiven "the Discord Gateway fails subsequent connections"
+  isaac.comm.discord.discord-steps/discord-gateway-fails-subsequent
+  "Makes connect-ws! throw on the next reconnect. Snapshots auth count
+   so 'no further IDENTIFY or RESUME' measures from here.")
+
+(defwhen "the Discord client is stopped" isaac.comm.discord.discord-steps/discord-client-stopped
+  "gateway/stop! on the active client. Snapshots auth count.")
+
+(defthen "the Discord client sends no further IDENTIFY or RESUME"
+  isaac.comm.discord.discord-steps/discord-sends-no-further-auth
+  "Auth payload count is unchanged since the last snapshot (opcode 7,
+   fail-subsequent, or stop).")
 
 (defthen "the Discord client sends exactly one RESUME or IDENTIFY on reconnect"
   isaac.comm.discord.discord-steps/discord-sends-one-auth-on-reconnect

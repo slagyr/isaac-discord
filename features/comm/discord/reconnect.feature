@@ -44,7 +44,6 @@ Feature: Discord Gateway reconnect
   # same-second pairs). Opcode 7 schedules RESUME; the socket close
   # that follows (often 1000) scheduled a second reconnect as IDENTIFY.
   # Two uuid reconnect tasks then IDENTIFY'd in the same millisecond.
-  @wip
   Scenario: opcode 7 plus a racing close sends one RESUME
     When Discord sends opcode 7
     And Discord closes the connection with code 1000
@@ -58,7 +57,6 @@ Feature: Discord Gateway reconnect
       | level | event                                |
       | :warn | :discord.gateway/reconnect-requested |
 
-  @wip
   Scenario: reconnect failures park instead of IDENTIFY-storming
     Given the Discord Gateway fails subsequent connections
     When Discord closes the connection with code 1006
@@ -68,7 +66,6 @@ Feature: Discord Gateway reconnect
       | :error | :discord.gateway/reconnect-exhausted |
     And the Discord client sends no further IDENTIFY or RESUME
 
-  @wip
   Scenario: stopping the client cancels a pending reconnect
     When Discord closes the connection with code 1006
     And the Discord client is stopped

@@ -364,6 +364,110 @@
           (test-clock/advance! clock 45000)
           (should (> (count (filter #(= 1 (:op %)) @sent*)) beats-before))))))
 
+  (it "reconnects once with RESUME when opcode 7 races a 1000 close"
+    (let [sent*      (atom [])
+          callbacks* (atom [])
+          clock      (test-clock/make)
+          sch        (:scheduler clock)
+          connect!   (fn [_url callbacks]
+                       (swap! callbacks* conj callbacks)
+                       {:callback-driven? true
+                        :close!           (fn [] nil)
+                        :send!            (fn [payload] (swap! sent* conj payload))})
+          client     (sut/connect! {:token       "test-token"
+                                    :scheduler   sch
+                                    :connect-ws! connect!})
+          auth?      #(contains? #{2 6} (:op %))]
+      ((:on-message (first @callbacks*)) (json/generate-string {:op 10 :d {:heartbeat_interval 45000}}))
+      ((:on-message (first @callbacks*)) (json/generate-string {:op 0 :t "READY" :s 7 :d {:session_id "abc" :user {:id "bot"}}}))
+      (let [auth-before (count (filter auth? @sent*))]
+        ((:on-message (first @callbacks*)) (json/generate-string {:op 7}))
+        ((:on-close (first @callbacks*)) {:status 1000 :reason "opcode-7-socket-close"})
+        (test-clock/advance! clock 1000)
+        (should= 2 (count @callbacks*))
+        (should= 1 (- (count (filter auth? @sent*)) auth-before))
+        (should= 6 (:op (last (filter auth? @sent*))))
+        (should (sut/running? client)))))
+
+  (it "parks after 8 reconnect attempts that never reach READY"
+    (let [attempts*  (atom 0)
+          callbacks* (atom [])
+          clock      (test-clock/make)
+          sch        (:scheduler clock)
+          connect!   (fn [_url callbacks]
+                       (swap! attempts* inc)
+                       (if (= 1 @attempts*)
+                         (do (swap! callbacks* conj callbacks)
+                             {:callback-driven? true
+                              :close!           (fn [] nil)
+                              :send!            (fn [_payload] nil)})
+                         (throw (ex-info "network down" {}))))
+          client     (sut/connect! {:token                  "test-token"
+                                    :scheduler              sch
+                                    :reconnect-delay-ms     10
+                                    :reconnect-max-delay-ms 10
+                                    :connect-ws!            connect!})]
+      ((:on-message (first @callbacks*)) (json/generate-string {:op 10 :d {:heartbeat_interval 45000}}))
+      ((:on-message (first @callbacks*)) (json/generate-string {:op 0 :t "READY" :s 1 :d {:session_id "abc" :user {:id "bot"}}}))
+      ((:on-close (first @callbacks*)) {:status 1006 :reason "closed"})
+      (dotimes [_ 30]
+        (test-clock/advance! clock 10))
+      (should (contains? (log-events) :discord.gateway/reconnect-exhausted))
+      (should= 9 @attempts*)
+      (should (sut/running? client))
+      (sut/check-liveness! client)
+      (test-clock/advance! clock 1000)
+      (should= 9 @attempts*)))
+
+  (it "does not fire a pending reconnect after stop!"
+    (let [callbacks* (atom [])
+          clock      (test-clock/make)
+          sch        (:scheduler clock)
+          connect!   (fn [_url callbacks]
+                       (swap! callbacks* conj callbacks)
+                       {:callback-driven? true
+                        :close!           (fn [] nil)
+                        :send!            (fn [_payload] nil)})
+          client     (sut/connect! {:token              "test-token"
+                                    :scheduler          sch
+                                    :reconnect-delay-ms 1000
+                                    :connect-ws!        connect!})]
+      ((:on-message (first @callbacks*)) (json/generate-string {:op 10 :d {:heartbeat_interval 45000}}))
+      ((:on-message (first @callbacks*)) (json/generate-string {:op 0 :t "READY" :s 1 :d {:session_id "abc" :user {:id "bot"}}}))
+      ((:on-close (first @callbacks*)) {:status 1006 :reason "closed"})
+      (sut/stop! client)
+      (test-clock/advance! clock 1000)
+      (should= 1 (count @callbacks*))
+      (should-not (contains? (log-events) :discord.gateway/reconnect-attempt))
+      (should-not (sut/running? client))))
+
+  (it "parks after 8 reconnects that open then die before READY"
+    (let [sent*      (atom [])
+          callbacks* (atom [])
+          clock      (test-clock/make)
+          sch        (:scheduler clock)
+          connect!   (fn [_url callbacks]
+                       (swap! callbacks* conj callbacks)
+                       {:callback-driven? true
+                        :close!           (fn [] nil)
+                        :send!            (fn [payload] (swap! sent* conj payload))})
+          _client    (sut/connect! {:token              "test-token"
+                                    :scheduler          sch
+                                    :reconnect-delay-ms 10
+                                    :connect-ws!        connect!})
+          auth?      #(contains? #{2 6} (:op %))]
+      ((:on-message (first @callbacks*)) (json/generate-string {:op 10 :d {:heartbeat_interval 45000}}))
+      ((:on-message (first @callbacks*)) (json/generate-string {:op 0 :t "READY" :s 1 :d {:session_id "abc" :user {:id "bot"}}}))
+      (let [auth-before (count (filter auth? @sent*))]
+        ((:on-close (first @callbacks*)) {:status 1006 :reason "flap"})
+        (dotimes [_ 8]
+          (test-clock/advance! clock 10)
+          ((:on-close (last @callbacks*)) {:status 1006 :reason "flap"}))
+        (test-clock/advance! clock 10)
+        (should (contains? (log-events) :discord.gateway/reconnect-exhausted))
+        (should= 8 (- (count (filter auth? @sent*)) auth-before))
+        (should= 9 (count @callbacks*)))))
+
   (it "logs and reconnects with RESUME on opcode 9 when session is resumable"
     (let [sent*      (atom [])
           callbacks* (atom [])

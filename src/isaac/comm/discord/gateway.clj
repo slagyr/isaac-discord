@@ -11,12 +11,10 @@
 
 (def ^:private resumable-close-codes #{4000 4001 4002 4003 4008})
 (def ^:private reidentify-close-codes #{1000 1001 1006 4007 4009})
-(def ^:private reconnect-task-id-prefix "discord.gateway.reconnect")
+(def ^:private reconnect-task-id :discord.gateway/reconnect)
 (def ^:private default-reconnect-delay-ms 1000)
 (def ^:private default-reconnect-max-delay-ms 30000)
-
-(defn- next-reconnect-task-id []
-  (keyword reconnect-task-id-prefix (str (random-uuid))))
+(def ^:private max-reconnect-attempts 8)
 
 (defn- normalize-id-set [values]
   (->> (cond
@@ -83,6 +81,9 @@
 (defn- heartbeat-ack-missing? [state]
   (true? (:heartbeat-ack-pending? state)))
 
+(defn- reconnect-pending? [state]
+  (boolean (or (:reconnect-task-id state) (:reconnect-in-flight? state))))
+
 (defn- ensure-recovery!
   "When the client is still marked running but not READY and no reconnect is
    pending, schedule a reconnect. Catches cases where on-close! failed to
@@ -92,8 +93,8 @@
     (when (and (:running? state)
                (= :disconnected (:status state))
                (some? (:disconnect state))
-               (nil? (:reconnect-task-id state))
-               (not (:reconnect-in-flight? state)))
+               (not (reconnect-pending? state))
+               (not (:reconnect-exhausted? state)))
       (log/warn :discord.gateway/stale-not-recovering
                 :status (:status state)
                 :reason (get-in state [:disconnect :reason])
@@ -184,9 +185,11 @@
     "READY"
     (do
       (swap! (:state client) assoc
-             :status     :ready
-             :session-id (get-in message [:d :session_id])
-             :bot-id     (some-> (get-in message [:d :user :id]) str))
+             :status                :ready
+             :session-id            (get-in message [:d :session_id])
+             :bot-id                (some-> (get-in message [:d :user :id]) str)
+             :reconnect-attempts    0
+             :reconnect-exhausted?  false)
       (log/info :discord.gateway/ready :session-id (get-in message [:d :session_id])))
 
     "MESSAGE_CREATE"
@@ -276,11 +279,31 @@
       :resume (send-resume! client)
       :identify (send-identify! client))))
 
+(defn- park! [client]
+  (log/error :discord.gateway/reconnect-exhausted :attempts max-reconnect-attempts)
+  (swap! (:state client) assoc :reconnect-exhausted? true)
+  (swap! (:state client) dissoc :reconnect-task-id)
+  nil)
+
+(defn- record-attempt! [client]
+  (:reconnect-attempts (swap! (:state client) update :reconnect-attempts (fnil inc 0))))
+
 (defn- reconnect-handler [client mode]
   (fn [_ctx]
-    (when (:running? @(:state client))
-      (log/info :discord.gateway/reconnect-attempt :mode mode)
-      (do-reconnect! client mode))))
+    (when (and (:running? @(:state client))
+               (not (:reconnect-exhausted? @(:state client))))
+      (let [n (record-attempt! client)]
+        (if (> n max-reconnect-attempts)
+          (park! client)
+          (do
+            (log/info :discord.gateway/reconnect-attempt :mode mode :attempt n)
+            (try
+              (do-reconnect! client mode)
+              (swap! (:state client) dissoc :reconnect-task-id)
+              (catch Exception e
+                (if (>= n max-reconnect-attempts)
+                  (park! client)
+                  (throw e))))))))))
 
 (defn- cancel-reconnect! [client]
   (when-let [sch (or (:scheduler client) (nexus/get :scheduler))]
@@ -288,27 +311,41 @@
       (scheduler/cancel! sch task-id))
     (swap! (:state client) dissoc :reconnect-task-id)))
 
+(defn- claim-reconnect!
+  "CAS the reconnect claim. Returns true if this caller owns the next attempt."
+  [client]
+  (let [[old _] (swap-vals! (:state client)
+                            (fn [s]
+                              (if (or (reconnect-pending? s) (:reconnect-exhausted? s))
+                                s
+                                (assoc s :reconnect-task-id reconnect-task-id))))]
+    (and (not (reconnect-pending? old))
+         (not (:reconnect-exhausted? old)))))
+
 (defn- schedule-reconnect! [client mode]
   (when-let [sch (or (:scheduler client) (nexus/get :scheduler))]
-    (let [base-delay (max 1 (or (:reconnect-delay-ms client) default-reconnect-delay-ms))
-          max-delay  (max 1 (or (:reconnect-max-delay-ms client) default-reconnect-max-delay-ms))
-          task-id    (next-reconnect-task-id)]
-      (cancel-reconnect! client)
-      (scheduler/schedule!
-        sch
-        {:id             task-id
-         :trigger        {:kind :delay :ms base-delay}
-         :handler        (reconnect-handler client mode)
-         :on-error       :retry
-         :backoff-ms     base-delay
-         :max-backoff-ms max-delay
-         :retry-attempts Long/MAX_VALUE})
-      (swap! (:state client) assoc :reconnect-task-id task-id))))
+    (when (claim-reconnect! client)
+      (let [base-delay (max 1 (or (:reconnect-delay-ms client) default-reconnect-delay-ms))
+            max-delay  (max 1 (or (:reconnect-max-delay-ms client) default-reconnect-max-delay-ms))]
+        (try
+          (scheduler/schedule!
+            sch
+            {:id             reconnect-task-id
+             :trigger        {:kind :delay :ms base-delay}
+             :handler        (reconnect-handler client mode)
+             :on-error       :retry
+             :backoff-ms     base-delay
+             :max-backoff-ms max-delay
+             :retry-attempts max-reconnect-attempts})
+          (catch Exception e
+            (swap! (:state client) dissoc :reconnect-task-id)
+            (throw e)))))))
 
 (defn- attempt-reconnect! [client mode]
-  (if-let [sch (or (:scheduler client) (nexus/get :scheduler))]
+  (if (or (:scheduler client) (nexus/get :scheduler))
     (schedule-reconnect! client mode)
-    (do
+    (when-not (or (reconnect-pending? @(:state client))
+                  (:reconnect-exhausted? @(:state client)))
       (log/info :discord.gateway/reconnect-attempt :mode mode)
       (swap! (:state client) assoc :reconnect-in-flight? true)
       (try
@@ -331,13 +368,15 @@
       (and (some? status) (>= status 4010))))
 
 (defn- reconnect-after-close! [client payload status reason]
-  (let [mode (or (:mode payload) (reconnect-mode-for-close status))]
+  (let [mode  (or (:mode payload) (reconnect-mode-for-close status))
+        state @(:state client)]
     (log/warn :discord.gateway/disconnected :payload payload :status status :reason reason :mode mode)
-    (try
-      (attempt-reconnect! client mode)
-      (catch Exception e
-        (log/ex :discord.gateway/reconnect-schedule-failed e :mode mode :reason reason)
-        (ensure-recovery! client)))))
+    (when-not (or (reconnect-pending? state) (:reconnect-exhausted? state))
+      (try
+        (attempt-reconnect! client mode)
+        (catch Exception e
+          (log/ex :discord.gateway/reconnect-schedule-failed e :mode mode :reason reason)
+          (ensure-recovery! client))))))
 
 (defn- on-close! [client payload]
   (let [status (close-status payload)

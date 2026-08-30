@@ -169,8 +169,16 @@
   (when (server-running?)
     (disconnect-registration! reg)))
 
+(defn- stop-other-registrations! [^DiscordRegistration keep]
+  (doseq [reg (vec (registry/registrations-for :discord))]
+    (when-not (identical? (.-comm-impl keep)
+                          (.-comm-impl ^DiscordRegistration reg))
+      (disconnect-registration! reg)
+      (registry/deregister! :discord reg))))
+
 (defn register-comm! [comm-impl]
   (let [reg (make-registration comm-impl)]
+    (stop-other-registrations! reg)
     (registry/register! :discord reg)
     (on-register! reg)
     (when (server-running?)
@@ -179,6 +187,7 @@
 
 (defn update-comm! [comm-impl old-slice new-slice]
   (let [reg (make-registration comm-impl)]
+    (stop-other-registrations! reg)
     (registry/register! :discord reg)
     (on-update! reg old-slice new-slice)
     reg))

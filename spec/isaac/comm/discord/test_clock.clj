@@ -19,11 +19,31 @@
                                 :pool-size 1})]
     {:scheduler sch :now* now*}))
 
-(defn advance! [clock ms]
-  (swap! (:now* clock) (fn [^Instant t] (.plusMillis t ms)))
-  (scheduler/tick! (:scheduler clock))
-  ;; Drain the pool: submit a barrier task after tick! and wait. Pool
-  ;; is size 1 so FIFO ordering guarantees prior handlers ran first.
+(defn- drain! [clock]
   (let [^ExecutorService ex (:executor (:scheduler clock))]
-    (.get (.submit ex ^Runnable (fn []))))
-  clock)
+    (.get (.submit ex ^Runnable (fn [])))))
+
+(defn advance!
+  "Move the virtual clock forward `ms` milliseconds, firing every scheduler
+   task that would have come due in that window (retries included)."
+  [clock ms]
+  (let [^Instant target (.plusMillis ^Instant @(:now* clock) ms)
+        sch             (:scheduler clock)]
+    (loop [n 0]
+      (when (> n 10000)
+        (throw (ex-info "test clock advance ran away" {:ms ms})))
+      (let [due (->> (scheduler/list-tasks sch)
+                     (keep :next-fire-at)
+                     (filter (fn [^Instant t] (not (.isAfter t target))))
+                     sort)]
+        (if-let [^Instant next (first due)]
+          (do
+            (reset! (:now* clock) next)
+            (scheduler/tick! sch)
+            (drain! clock)
+            (recur (inc n)))
+          (do
+            (reset! (:now* clock) target)
+            (scheduler/tick! sch)
+            (drain! clock)))))
+    clock))

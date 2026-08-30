@@ -9,6 +9,7 @@
     [isaac.nexus :as nexus]
     [isaac.scheduler.runtime :as scheduler]
     [isaac.server.app :as server-app]
+    [isaac.service.registry :as service-registry]
     [speclj.core :refer :all]))
 
 (defn- fake-connect! [sent callbacks*]
@@ -22,7 +23,8 @@
 
   (before
     (log/set-output! :memory)
-    (log/clear-entries!))
+    (log/clear-entries!)
+    (reset! service-registry/*registry* (service-registry/fresh-registry)))
 
   (it "starts the watchdog when a comm registers on a running server"
     (let [clock (test-clock/make)
@@ -55,4 +57,32 @@
           (test-clock/advance! clock 60000)
           (should (contains? (set (map :event (log/get-entries)))
                               :discord.watchdog/check))
-          (scheduler/cancel! sch :discord.service/watchdog))))))
+          (scheduler/cancel! sch :discord.service/watchdog)))))
+
+  (it "stops a prior comm's pending reconnect when a new comm registers"
+    (let [clock      (test-clock/make)
+          sch        (:scheduler clock)
+          connects*  (atom 0)
+          callbacks* (atom [])
+          connect!   (fn [_url callbacks]
+                       (swap! connects* inc)
+                       (swap! callbacks* conj callbacks)
+                       {:callback-driven? true
+                        :close!           (fn [] nil)
+                        :send!            (fn [_payload] nil)})]
+      (with-redefs [server-app/running? (constantly true)]
+        (nexus/-with-nested-nexus {:scheduler sch :fs (fs/mem-fs)}
+          (let [di1 (discord/integration {:root "/tmp/discord-prior"
+                                          :connect-ws! connect!})
+                di2 (discord/integration {:root "/tmp/discord-next"
+                                          :connect-ws! connect!})]
+            (reset! (.-cfg di1) {:discord/token "tok"})
+            (reset! (.-cfg di2) {:discord/token "tok"})
+            (sut/register-comm! di1)
+            (should= 1 @connects*)
+            ((:on-close (last @callbacks*)) {:status 1006 :reason "flap"})
+            (sut/register-comm! di2)
+            (test-clock/advance! clock 1000)
+            (should= 2 @connects*)
+            (scheduler/cancel! sch :discord.service/watchdog))))))
+  )
