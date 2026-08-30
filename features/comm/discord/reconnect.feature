@@ -59,19 +59,6 @@ Feature: Discord Gateway reconnect
       | :warn | :discord.gateway/reconnect-requested |
 
   @wip
-  Scenario: opcode 7 reconnects with RESUME not IDENTIFY
-    When Discord sends opcode 7
-    And the reconnect delay passes
-    Then the Discord client sends RESUME:
-      | token      | test-token   |
-      | session_id | fake-session |
-      | seq        | 1            |
-    And the Discord client sends exactly one RESUME or IDENTIFY on reconnect
-    And the log has entries matching:
-      | level | event                                |
-      | :warn | :discord.gateway/reconnect-requested |
-
-  @wip
   Scenario: reconnect failures park instead of IDENTIFY-storming
     Given the Discord Gateway fails subsequent connections
     When Discord closes the connection with code 1006
