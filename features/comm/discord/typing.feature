@@ -3,7 +3,8 @@ Feature: Discord typing indicator
   message, the adapter POSTs to /channels/{channel_id}/typing so the
   "..." typing bubble appears in Discord. Discord auto-clears the
   bubble after ~10 seconds; for turns longer than that, the adapter
-  refreshes periodically (unit-spec coverage).
+  refreshes it every ~8 seconds until the turn ends — every outcome,
+  success or error, stops the heartbeat (isaac-qomx).
 
   Background:
     Given default Grover setup in "/test/discord-typing"
@@ -27,3 +28,42 @@ Feature: Discord typing indicator
     Then an outbound HTTP request to "https://discord.com/api/v10/channels/C999/typing" matches:
       | method                | POST           |
       | headers.Authorization | Bot test-token |
+
+  @wip
+  Scenario: typing refreshes while the turn is still running
+    Given the following model responses are queued:
+      | model | type | content | wait |
+      | echo  | text | hi back | true |
+    When Discord sends MESSAGE_CREATE:
+      | channel_id | C999 |
+      | guild_id   | G789 |
+      | author.id  | 123  |
+      | content    | hi   |
+    And the test clock advances 17000 milliseconds
+    Then 3 Discord outbound HTTP requests to "https://discord.com/api/v10/channels/C999/typing" were made
+
+  @wip
+  Scenario: the heartbeat stops when the turn ends
+    Given the following model responses are queued:
+      | model | type | content |
+      | echo  | text | hi back |
+    When Discord sends MESSAGE_CREATE:
+      | channel_id | C999 |
+      | guild_id   | G789 |
+      | author.id  | 123  |
+      | content    | hi   |
+    And the test clock advances 30000 milliseconds
+    Then 1 Discord outbound HTTP requests to "https://discord.com/api/v10/channels/C999/typing" were made
+
+  @wip
+  Scenario: an error turn also stops the heartbeat
+    Given the following model responses are queued:
+      | model | type  | content       |
+      | echo  | error | provider boom |
+    When Discord sends MESSAGE_CREATE:
+      | channel_id | C999 |
+      | guild_id   | G789 |
+      | author.id  | 123  |
+      | content    | hi   |
+    And the test clock advances 30000 milliseconds
+    Then 1 Discord outbound HTTP requests to "https://discord.com/api/v10/channels/C999/typing" were made
