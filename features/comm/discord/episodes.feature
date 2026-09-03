@@ -1,4 +1,3 @@
-@wip
 Feature: Discord channel is the conversation thread for episode crews
   A Discord channel is the conversation thread (not a process thread),
   the same role as an ACP session id. For a crew with :conversation
@@ -74,9 +73,11 @@ Feature: Discord channel is the conversation thread for episode crews
       | status | open         |
       | thread | discord-C999 |
     And an outbound HTTP request to "https://discord.com/api/v10/channels/C999/messages" matches:
+      | #index       | 0                |
       | method       | POST               |
       | body.content | Charted, keep west |
     And an outbound HTTP request to "https://discord.com/api/v10/channels/C999/messages" matches:
+      | #index       | 1             |
       | method       | POST          |
       | body.content | Wick trimmed  |
 
@@ -96,7 +97,7 @@ Feature: Discord channel is the conversation thread for episode crews
       | content    | Status? |
     Then the following sessions match:
       | id           |
-      | discord-C999 |
+      | discord-c999 |
     And crew "main" has 0 episodes
     And an outbound HTTP request to "https://discord.com/api/v10/channels/C999/messages" matches:
       | method       | POST |

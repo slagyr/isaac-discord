@@ -11,6 +11,7 @@
     [isaac.config.loader :as loader]
     [isaac.config.root :as root]
     [isaac.fs :as fs]
+    [isaac.episodes.lifecycle :as lifecycle]
     [isaac.logger :as log]
     [isaac.nexus :as nexus]
     [isaac.session.frequencies :as frequencies]
@@ -208,7 +209,8 @@
   [cfg channel-id channel-cfg discord-cfg payload]
   (let [session-store* (session-store/registered-store)
         freq           (channel->frequencies channel-cfg channel-id)
-        target         (frequencies/resolve-session-targets freq session-store*)]
+        target         (frequencies/resolve-session-targets freq session-store*)
+        crew-id        (channel-crew-id cfg discord-cfg channel-cfg)]
     (if (:error target)
       (do
         (log/warn :discord.route/no-session
@@ -217,11 +219,13 @@
         nil)
       (let [session-key (or (:session-key target)
                             (str "discord-" channel-id))]
-        (if (:create? target)
+        (if (lifecycle/episodes-crew? cfg crew-id)
+          session-key
+          (if (:create? target)
           (ensure-session! session-key
-                           (channel-crew-id cfg discord-cfg channel-cfg)
+                           crew-id
                            payload)
-          session-key)))))
+          session-key))))))
 
 ;; --- Turn context ---
 
@@ -312,7 +316,8 @@
     (let [cfg     (live-discord-cfg state-dir cfg)
           content (some-> (result-content result) str/trim)]
       (when (seq content)
-        (if-let [channel-id (session->channel-id cfg session-key)]
+        (if-let [channel-id (or (get-in result [:origin :channel-id])
+                                (session->channel-id cfg session-key))]
           (rest/try-send-or-enqueue! {:channel-id  channel-id
                                       :content     content
                                       :message-cap (:discord/message-cap cfg)
@@ -367,6 +372,7 @@
           channel-cfg  (channel-config discord-cfg* channel-id)
           session-name (resolve-inbound-session! cfg channel-id channel-cfg discord-cfg* payload)
           crew-id      (channel-crew-id cfg discord-cfg* channel-cfg)
+          episode?     (lifecycle/episodes-crew? cfg crew-id)
           model-ref    (channel-model-ref discord-cfg* channel-cfg)
           input        (or (:content payload) "")
           bot-id       (integration-bot-id comm-impl)
@@ -382,14 +388,15 @@
                    :model model-ref
                    :channelOverride (channel-override? discord-cfg* channel-id))
         (api/dispatch!
-          (charge/build
-            (cond-> {:session-key session-name
-                     :input       full-input
+          (cond-> {:input       full-input
                      :state-dir   state-dir
                      :comm        comm-impl
                      :crew        crew-id
-                     :model-ref   model-ref}
-              trusted (assoc :soul-prepend trusted))))))))
+                     :model-ref   model-ref
+                     :origin      (payload-origin payload)}
+              episode? (assoc :conversation {:kind :thread :id session-name})
+              (not episode?) (assoc :session-key session-name)
+              trusted (assoc :soul-prepend trusted)))))))
 
 (defn connect!
   [{:keys [cfg-overrides comm-impl connect-ws! route-messages? scheduler state-dir url]}]
