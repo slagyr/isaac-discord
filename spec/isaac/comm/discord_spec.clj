@@ -263,6 +263,78 @@
         (comm/on-turn-start integration "discord-C999" "hi")
         (should= {:channel-id "C999" :token "test-token"} @captured))))
 
+  (it "refreshes typing on the scheduler while the turn is in flight"
+    (let [captured    (atom [])
+          clock       (test-clock/make)
+          integration (sut/->DiscordIntegration test-dir nil (atom {:discord/token "test-token"}) (atom nil))]
+      (reset! (.-conn integration) {:scheduler (:scheduler clock)})
+      (with-redefs [rest/post-typing! (fn [opts] (swap! captured conj opts) {:status 204})]
+        (comm/on-turn-start integration "discord-C999" "hi")
+        (should= 1 (count @captured))
+        (test-clock/advance! clock 8000)
+        (should= 2 (count @captured))
+        (test-clock/advance! clock 8000)
+        (should= 3 (count @captured))
+        (should (every? #(= {:channel-id "C999" :token "test-token"} %) @captured)))))
+
+  (it "stops the typing heartbeat on turn end"
+    (let [captured    (atom [])
+          clock       (test-clock/make)
+          integration (sut/->DiscordIntegration test-dir nil (atom {:discord/token "test-token"}) (atom nil))]
+      (reset! (.-conn integration) {:scheduler (:scheduler clock)})
+      (with-redefs [rest/post-typing!         (fn [opts] (swap! captured conj opts) {:status 204})
+                    rest/try-send-or-enqueue! (fn [_] nil)]
+        (comm/on-turn-start integration "discord-C999" "hi")
+        (comm/on-turn-end integration "discord-C999" {:content "hi back"})
+        (test-clock/advance! clock 30000)
+        (should= 1 (count @captured)))))
+
+  (it "stops the typing heartbeat on an error turn end"
+    (let [captured    (atom [])
+          clock       (test-clock/make)
+          integration (sut/->DiscordIntegration test-dir nil (atom {:discord/token "test-token"}) (atom nil))]
+      (reset! (.-conn integration) {:scheduler (:scheduler clock)})
+      (with-redefs [rest/post-typing!         (fn [opts] (swap! captured conj opts) {:status 204})
+                    rest/try-send-or-enqueue! (fn [_] nil)]
+        (comm/on-turn-start integration "discord-C999" "hi")
+        (comm/on-turn-end integration "discord-C999" {:error :llm-error :message "provider boom"})
+        (test-clock/advance! clock 30000)
+        (should= 1 (count @captured)))))
+
+  (it "shares one heartbeat across concurrent turns on the same channel"
+    (let [captured    (atom [])
+          clock       (test-clock/make)
+          integration (sut/->DiscordIntegration test-dir nil (atom {:discord/token "test-token"}) (atom nil))]
+      (reset! (.-conn integration) {:scheduler (:scheduler clock)})
+      (with-redefs [rest/post-typing!         (fn [opts] (swap! captured conj opts) {:status 204})
+                    rest/try-send-or-enqueue! (fn [_] nil)]
+        (comm/on-turn-start integration "discord-C999" "first")
+        (comm/on-turn-start integration "discord-C999" "second")
+        (should= 1 (count @captured))
+        (comm/on-turn-end integration "discord-C999" {:content "first done"})
+        (test-clock/advance! clock 8000)
+        (should= 2 (count @captured))
+        (comm/on-turn-end integration "discord-C999" {:content "second done"})
+        (test-clock/advance! clock 16000)
+        (should= 2 (count @captured)))))
+
+  (it "skips a typing beat after a 429 Retry-After instead of tight-looping"
+    (let [captured    (atom [])
+          clock       (test-clock/make)
+          integration (sut/->DiscordIntegration test-dir nil (atom {:discord/token "test-token"}) (atom nil))]
+      (reset! (.-conn integration) {:scheduler (:scheduler clock)})
+      (with-redefs [rest/post-typing! (fn [opts]
+                                        (swap! captured conj opts)
+                                        (if (= 1 (count @captured))
+                                          {:status 429 :headers {"Retry-After" "5"}}
+                                          {:status 204}))]
+        (comm/on-turn-start integration "discord-C999" "hi")
+        (should= 1 (count @captured))
+        (test-clock/advance! clock 8000)
+        (should= 1 (count @captured))
+        (test-clock/advance! clock 5000)
+        (should= 2 (count @captured)))))
+
   (it "routes an accepted message to the channel session"
     (let [captured    (atom nil)
           integration (sut/->DiscordIntegration test-dir nil (atom {:discord/token "test-token"}) (atom nil))]

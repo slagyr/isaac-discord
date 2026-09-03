@@ -31,19 +31,10 @@
 (helper! isaac.comm.discord.discord-steps)
 
 (def ^:private fail-subsequent* (atom false))
-
-(g/before-scenario
-  (fn []
-    ;; Full teardown between scenarios so state doesn't leak across examples
-    ;; sharing the process: stop any running server, clear the nexus, and reset
-    ;; the service registry. service-runtime/stop-all! only deregisters service
-    ;; *instances*, not the accumulated comm *registrations*, so without this a
-    ;; prior scenario's stale registrations bleed into the next one.
-    (reset! fail-subsequent* false)
-    (server-app/stop!)
-    (nexus/reset!)
-    (reset! service-registry/*registry* (service-registry/fresh-registry))
-    (log/clear-entries!)))
+(def ^:private captured-http* (atom []))
+(def ^:private waiting-session* (atom nil))
+(def ^:private turn-future* (atom nil))
+(defonce ^:private real-http-post http/post)
 
 ;; Bridge the in-memory fake gateway into integrations started by the server.
 ;; factory/create passes :connect-ws! nil; inject from g when the Gateway is faked.
@@ -175,21 +166,59 @@
                  :headers (:headers opts)
                  :method  method
                  :url     url}]
-    (g/assoc! :outbound-http-request request)
-    (g/update! :outbound-http-requests #(conj (or % []) request))))
+    (swap! captured-http* conj request)
+    (try
+      (g/assoc! :outbound-http-request request)
+      (g/update! :outbound-http-requests #(conj (or % []) request))
+      (catch Exception _ nil))))
 
 (defn- stubbed-response [url]
-  (when-let [stub (get (g/get :url-stubs) url)]
+  (when-let [stub (try (get (g/get :url-stubs) url) (catch Exception _ nil))]
     {:body    (:body stub "")
      :headers (:headers stub {})
      :status  (:status stub 200)}))
 
+(defn- install-http-post-stub! []
+  (alter-var-root #'http/post
+    (constantly
+      (fn [url opts]
+        (record-request! "POST" url opts)
+        (or (stubbed-response url)
+            {:status 200 :headers {} :body "{}"})))))
+
+(defn- restore-http-post! []
+  (alter-var-root #'http/post (constantly real-http-post)))
+
+(g/before-scenario
+  (fn []
+    ;; Full teardown between scenarios so state doesn't leak across examples
+    ;; sharing the process: stop any running server, clear the nexus, and reset
+    ;; the service registry. service-runtime/stop-all! only deregisters service
+    ;; *instances*, not the accumulated comm *registrations*, so without this a
+    ;; prior scenario's stale registrations bleed into the next one.
+    (reset! fail-subsequent* false)
+    (reset! captured-http* [])
+    (reset! waiting-session* nil)
+    (reset! turn-future* nil)
+    (server-app/stop!)
+    (nexus/reset!)
+    (reset! service-registry/*registry* (service-registry/fresh-registry))
+    (log/clear-entries!)
+    (install-http-post-stub!)))
+
+(g/after-scenario
+  (fn []
+    (when-let [sk @waiting-session*]
+      (grover/release-wait! sk)
+      (reset! waiting-session* nil))
+    (when-let [tf @turn-future*]
+      (when-not (realized? tf)
+        (deref tf 5000 nil))
+      (reset! turn-future* nil))
+    (restore-http-post!)))
+
 (defn- with-http-post-stub [f]
-  (with-redefs [http/post (fn [url opts]
-                            (record-request! "POST" url opts)
-                            (or (stubbed-response url)
-                                {:status 200 :headers {} :body "{}"}))]
-    (f)))
+  (f))
 
 (defn- make-connect-ws! [sent callbacks*]
   (fn [_url callbacks]
@@ -420,26 +449,37 @@
       #(comm/on-turn-end integration session-key {:content text}))))
 
 (defn discord-sends-message-create [table]
-  (let [payload (reduce (fn [acc [k v]]
-                          (assoc-in acc (mapv keyword (clojure.string/split k #"\.")) (parse-value v)))
-                        {}
-                        (table-map table))
-        before  (when (routing-enabled?) (with-feature-fs #(route-state payload)))]
+  (let [payload     (reduce (fn [acc [k v]]
+                              (assoc-in acc (mapv keyword (clojure.string/split k #"\.")) (parse-value v)))
+                            {}
+                            (table-map table))
+        before      (when (routing-enabled?) (with-feature-fs #(route-state payload)))
+        channel-id  (-> payload :channel_id str)
+        session-key (str "discord-" channel-id)]
     (when-let [cfg (loaded-config)]
       (config/dangerously-install-config! cfg "discord feature")
       (when-let [integration (active-integration)]
         (reset! (.-cfg integration)
                 (merge (get-in cfg [:comms :discord] {}) (current-discord-config)))))
-    (with-http-post-stub
-      (fn []
-        (with-feature-fs
-          (fn []
-            ((:on-message @(g/get :discord-callbacks))
-             (json/generate-string {:op 0 :t "MESSAGE_CREATE" :s 2 :d payload}))
-            (when (and (routing-enabled?)
-                       (route-missing? (route-state payload) before))
-              (discord/process-message! (active-integration) (state-dir) payload))))
-        (session-steps/await-turn!)
+    (let [work (bound-fn []
+                 (with-feature-fs
+                   (fn []
+                     ((:on-message @(g/get :discord-callbacks))
+                      (json/generate-string {:op 0 :t "MESSAGE_CREATE" :s 2 :d payload}))
+                     (when (and (routing-enabled?)
+                                (route-missing? (route-state payload) before))
+                       (discord/process-message! (active-integration) (state-dir) payload)))))
+          fut  (future (work))]
+      (reset! turn-future* fut)
+      (reset! waiting-session* session-key)
+      (helper/await-condition #(or (realized? fut) (grover/waiting? session-key)) 5000)
+      (if (realized? fut)
+        (do
+          @fut
+          (reset! turn-future* nil)
+          (reset! waiting-session* nil)
+          (session-steps/await-turn!)
+          (g/assoc! :llm-request (grover/last-request)))
         (g/assoc! :llm-request (grover/last-request))))))
 
 
@@ -589,6 +629,11 @@
 
 (defn no-discord-outbound-http-request-was-made []
   (g/should= [] (or (g/get :outbound-http-requests) [])))
+
+(defn discord-outbound-http-request-count-to-url [n url]
+  (let [requests (or (seq @captured-http*) (g/get :outbound-http-requests) [])
+        matching (filter #(= url (:url %)) requests)]
+    (g/should= n (count matching))))
 
 (defn discord-comm-send! [table]
   (let [_ (g/assoc! :outbound-http-requests [])
@@ -743,5 +788,10 @@
 
 (defthen "no Discord outbound HTTP request was made"
   isaac.comm.discord.discord-steps/no-discord-outbound-http-request-was-made)
+
+(defthen "{n:int} Discord outbound HTTP requests to {url:string} were made"
+  isaac.comm.discord.discord-steps/discord-outbound-http-request-count-to-url
+  "Count variant of the outbound HTTP matcher. Tolerates singular/plural
+   'request(s)'. Counts recorded POSTs whose :url equals the given URL.")
 
 ;; endregion ^^^^^ Routing ^^^^^

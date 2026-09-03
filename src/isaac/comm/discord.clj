@@ -14,6 +14,7 @@
     [isaac.episodes.lifecycle :as lifecycle]
     [isaac.logger :as log]
     [isaac.nexus :as nexus]
+    [isaac.scheduler.runtime :as scheduler]
     [isaac.session.frequencies :as frequencies]
     [isaac.session.store.spi :as session-store]))
 
@@ -298,12 +299,93 @@
             :status (:status @(:state gw-client)))
   {:ok false :transient? true :defer? true})
 
+(def ^:private TYPING_HEARTBEAT_MS 8000)
+
+(defn- typing-scheduler [di]
+  (let [conn (some-> di .-conn deref)]
+    (or (:scheduler conn)
+        (some-> conn :client :scheduler)
+        (nexus/get :scheduler))))
+
+(defn- header-value [headers k]
+  (when headers
+    (or (get headers k)
+        (get headers (str/lower-case (str k)))
+        (some (fn [[hk hv]]
+                (when (and (string? hk)
+                           (= (str/lower-case hk) (str/lower-case (str k))))
+                  hv))
+              headers))))
+
+(defn- parse-retry-after-ms [raw]
+  (when raw
+    (let [n (cond
+              (number? raw) (double raw)
+              (string? raw) (try (Double/parseDouble raw) (catch Exception _ nil))
+              :else         nil)]
+      (when n
+        (long (if (> n 1000) n (* n 1000)))))))
+
+(defn- typing-retry-delay-ms [response]
+  (if (= 429 (:status response 0))
+    (+ TYPING_HEARTBEAT_MS (or (parse-retry-after-ms (header-value (:headers response) "Retry-After")) 0))
+    TYPING_HEARTBEAT_MS))
+
+(declare beat-typing!)
+
+(defn- schedule-next-typing! [di channel-id delay-ms]
+  (when-let [sch (typing-scheduler di)]
+    (let [id (scheduler/after! sch delay-ms
+                               (fn [_] (beat-typing! di channel-id)))]
+      (swap! (.-conn di) update-in [:typing channel-id]
+             (fn [entry]
+               (when entry
+                 (assoc entry :task-id id :scheduler sch))))
+      (when-not (get-in @(.-conn di) [:typing channel-id])
+        (scheduler/cancel! sch id))
+      id)))
+
+(defn- beat-typing! [di channel-id]
+  (when (get-in @(.-conn di) [:typing channel-id])
+    (let [cfg      (live-discord-cfg (.-state-dir di) (.-cfg di))
+          token    (:discord/token cfg)
+          response (try
+                     (rest/post-typing! {:channel-id channel-id :token token})
+                     (catch Exception e
+                       (log/ex :discord.typing/heartbeat-failed e)
+                       nil))]
+      (when (get-in @(.-conn di) [:typing channel-id])
+        (schedule-next-typing! di channel-id (typing-retry-delay-ms response))))))
+
+(defn- start-typing-heartbeat! [di channel-id]
+  (let [conn     (.-conn di)
+        existing (get-in @conn [:typing channel-id])]
+    (if existing
+      (swap! conn update-in [:typing channel-id :count] inc)
+      (let [cfg      (live-discord-cfg (.-state-dir di) (.-cfg di))
+            token    (:discord/token cfg)
+            response (rest/post-typing! {:channel-id channel-id :token token})]
+        (swap! conn assoc-in [:typing channel-id] {:count 1 :token token})
+        (schedule-next-typing! di channel-id (typing-retry-delay-ms response))))))
+
+(defn- stop-typing-heartbeat! [di channel-id]
+  (let [conn  (.-conn di)
+        entry (get-in @conn [:typing channel-id])]
+    (when entry
+      (if (> (:count entry 1) 1)
+        (swap! conn update-in [:typing channel-id :count] dec)
+        (do
+          (when-let [task-id (:task-id entry)]
+            (when-let [sch (or (:scheduler entry) (typing-scheduler di))]
+              (scheduler/cancel! sch task-id)))
+          (swap! conn update :typing dissoc channel-id))))))
+
 (deftype DiscordIntegration [state-dir connect-ws! cfg conn]
   api/Comm
-  (on-turn-start [_ session-key _]
+  (on-turn-start [this session-key _]
     (let [cfg (live-discord-cfg state-dir cfg)]
       (when-let [channel-id (session->channel-id cfg session-key)]
-        (rest/post-typing! {:channel-id channel-id :token (:discord/token cfg)}))))
+        (start-typing-heartbeat! this channel-id))))
   (on-text-chunk [_ _ _] nil)
   (on-tool-call [_ _ _] nil)
   (on-tool-cancel [_ _ _] nil)
@@ -312,12 +394,15 @@
   (on-compaction-success [_ _ _] nil)
   (on-compaction-failure [_ _ _] nil)
   (on-compaction-disabled [_ _ _] nil)
-  (on-turn-end [_ session-key result]
-    (let [cfg     (live-discord-cfg state-dir cfg)
-          content (some-> (result-content result) str/trim)]
+  (on-turn-end [this session-key result]
+    (let [cfg        (live-discord-cfg state-dir cfg)
+          content    (some-> (result-content result) str/trim)
+          channel-id (or (get-in result [:origin :channel-id])
+                         (session->channel-id cfg session-key))]
+      (when channel-id
+        (stop-typing-heartbeat! this channel-id))
       (when (seq content)
-        (if-let [channel-id (or (get-in result [:origin :channel-id])
-                                (session->channel-id cfg session-key))]
+        (if channel-id
           (rest/try-send-or-enqueue! {:channel-id  channel-id
                                       :content     content
                                       :message-cap (:discord/message-cap cfg)
@@ -413,8 +498,8 @@
                                         scheduler   (assoc :scheduler scheduler)
                                         connect-ws! (assoc :connect-ws! connect-ws!)
                                         url         (assoc :url url)))
-        _           (when (and di (nil? comm-impl))
-                      (reset! (.-conn di) {:client client}))]
+        _           (when di
+                      (swap! (.-conn di) merge {:client client :scheduler scheduler}))]
     {:client      client
      :integration di}))
 

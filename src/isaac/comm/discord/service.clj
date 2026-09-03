@@ -42,9 +42,11 @@
       (log/info :discord.client/started)
       (let [result (discord/connect! {:cfg-overrides {:comms {:discord slice}}
                                       :comm-impl     comm-impl
+                                      :scheduler     (nexus/get :scheduler)
                                       :state-dir     state-dir
                                       :connect-ws!   connect-ws!})]
-        (reset! (.-conn comm-impl) {:client (:client result)})))))
+        (swap! (.-conn comm-impl) merge {:client     (:client result)
+                                         :scheduler  (nexus/get :scheduler)})))))
 
 (defn- disconnect-registration! [reg]
   (when-let [comm-impl (.-comm-impl reg)]
