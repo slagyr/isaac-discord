@@ -6,7 +6,7 @@ Feature: Discord comm offers the crew's configured tools
 
   Background:
     Given default Grover setup
-    And the crew "main" allows tools: "read,write,exec"
+    And the crew "main" allows tools: "fs/read,fs/write,exec/run"
     And the Discord Gateway is faked in-memory
     And Discord is configured with:
       | key   | value    |
@@ -19,7 +19,7 @@ Feature: Discord comm offers the crew's configured tools
       | content    | hi |
       | author.id  | 2  |
     Then the prompt has tools:
-      | name  |
-      | read  |
-      | write |
-      | exec  |
+      | name      |
+      | fs__read  |
+      | fs__write |
+      | exec__run |

@@ -290,10 +290,9 @@
                                 "bender" {:model "echo-bender" :provider "grover" :context-window 32768}}
                     :providers {"grover" {:api "grover"}}}]
       (with-redefs [loader/load-config-result (stub-config-result cfg)
-                    charge/build         (fn [input]
-                                           (reset! captured {:input (:input input) :opts input})
-                                           {:charge/type :charge})
-                    api/dispatch!     (fn [_] {:stopReason "end_turn"})]
+                    api/dispatch!     (fn [input]
+                                        (reset! captured {:input (:input input) :opts input})
+                                        {:stopReason "end_turn"})]
         (sut/process-message! test-dir {:channel_id "C999"
                                         :author     {:id "123"}
                                         :content    "hello"}))
@@ -313,10 +312,9 @@
                                 "chef-bender" {:model "echo-chef" :provider "grover" :context-window 32768}}
                     :providers {"grover" {:api "grover"}}}]
       (with-redefs [loader/load-config-result (stub-config-result cfg)
-                    charge/build         (fn [input]
-                                           (reset! captured {:input (:input input) :opts input})
-                                           {:charge/type :charge})
-                    api/dispatch!     (fn [_] {:stopReason "end_turn"})]
+                    api/dispatch!     (fn [input]
+                                        (reset! captured {:input (:input input) :opts input})
+                                        {:stopReason "end_turn"})]
         (sut/process-message! test-dir {:channel_id "C999"
                                         :author     {:id "123"}
                                         :content    "hello"}))
