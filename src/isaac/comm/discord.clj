@@ -15,6 +15,7 @@
     [isaac.episodes.lifecycle :as lifecycle]
     [isaac.logger :as log]
     [isaac.nexus :as nexus]
+    [isaac.reconfigurable :as reconfigurable]
     [isaac.scheduler.runtime :as scheduler]
     [isaac.session.frequencies :as frequencies]
     [isaac.session.store.spi :as session-store]))
@@ -442,7 +443,16 @@
                              :message-cap (:discord/message-cap dcfg)
                              :token       (:discord/token dcfg)})))))
 
-(deftype DiscordIntegration [state-dir connect-ws! cfg conn])
+(deftype DiscordIntegration [state-dir connect-ws! cfg conn]
+  reconfigurable/Reconfigurable
+  (on-load [this slice]
+    (reset! cfg slice)
+    ((requiring-resolve 'isaac.comm.discord.service/register-comm!) this))
+  (on-config-change! [this old new]
+    (reset! cfg new)
+    ((requiring-resolve 'isaac.comm.discord.service/update-comm!) this old new))
+  (on-unload [this _slice]
+    ((requiring-resolve 'isaac.comm.discord.service/unregister-comm!) this)))
 
 (extend DiscordIntegration
   comm/Comm
@@ -450,19 +460,7 @@
          {:on-turn-start on-turn-start*
           :on-turn-end   on-turn-end*
           :on-reply      on-reply*
-          :send!         send!*})
-  api/Reconfigurable
-  {:on-load
-   (fn [this slice]
-     (reset! (.-cfg this) slice)
-     ((requiring-resolve 'isaac.comm.discord.service/register-comm!) this))
-   :on-config-change!
-   (fn [this old new]
-     (reset! (.-cfg this) new)
-     ((requiring-resolve 'isaac.comm.discord.service/update-comm!) this old new))
-   :on-unload
-   (fn [this _slice]
-     ((requiring-resolve 'isaac.comm.discord.service/unregister-comm!) this))})
+          :send!         send!*}))
 
 (defn discord-cfg [integration]
   (when integration @(.-cfg integration)))
@@ -528,18 +526,25 @@
     {:client      client
      :integration di}))
 
+(defn- host-state-dir [host]
+  (or (:state-dir host)
+      (:root host)
+      (nexus/get :state-dir)
+      (nexus/get :root)
+      (root/current-root)))
+
 (defn integration [ctx]
-  (->DiscordIntegration (:root ctx) (:connect-ws! ctx) (atom nil) (atom nil)))
+  (->DiscordIntegration (host-state-dir ctx) (:connect-ws! ctx) (atom nil) (atom nil)))
 
 (defn make
   "Comm factory: builds a DiscordIntegration from host context.
-   host = {:root ... :connect-ws! ... :name <slot-key>}"
+   host = {:state-dir ... :root ... :connect-ws! ... :name <slot-key>}"
   [host]
-  (->DiscordIntegration (:root host) (:connect-ws! host) (atom nil) (atom nil)))
+  (->DiscordIntegration (host-state-dir host) (:connect-ws! host) (atom nil) (atom nil)))
 
 (defmethod factory/create :discord [node-path _slice]
   (make {:name        (last node-path)
-         :root        (or (nexus/get :root) (root/current-root))
+         :state-dir   (or (nexus/get :state-dir) (nexus/get :root) (root/current-root))
          :connect-ws! nil}))
 
 (defn discord-integration? [value]

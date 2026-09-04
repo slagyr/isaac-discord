@@ -9,10 +9,12 @@
     [isaac.comm.discord.rest :as rest]
     [isaac.comm.discord.test-clock :as test-clock]
     [isaac.comm.protocol :as comm]
+    [isaac.config.berths :as berth-config]
     [isaac.config.loader :as loader]
     [isaac.fs :as fs]
     [isaac.logger :as log]
     [isaac.nexus :as nexus]
+    [isaac.reconfigurable :as reconfigurable]
     [isaac.session.spec-helper :as storage]
     [speclj.core :refer :all]))
 
@@ -68,6 +70,13 @@
   (it "returns the target when no channels are configured"
     (should= "D111"
              (sut/resolve-target-channel {} "D111"))))
+
+(describe "Discord integration lifecycle"
+
+  (it "implements the config-berth Reconfigurable protocol"
+    (let [integration (sut/integration {:root test-dir})]
+      (should (satisfies? reconfigurable/Reconfigurable integration))
+      (should (satisfies? berth-config/Reconfigurable integration)))))
 
 (describe "Discord delivery record shape"
 
