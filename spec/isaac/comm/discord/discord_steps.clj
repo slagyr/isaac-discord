@@ -417,7 +417,7 @@
     (g/should-not-be-nil session-key)
     (g/should-not-be-nil integration)
     (with-http-post-stub
-      #(comm/on-turn-end integration session-key {:content text}))))
+      #(comm/on-reply integration session-key text))))
 
 (defn discord-sends-message-create [table]
   (let [payload (reduce (fn [acc [k v]]
@@ -668,7 +668,7 @@
 
 (defwhen #"the current session receives a completed turn with text \"([^\"]+)\""
   isaac.comm.discord.discord-steps/current-session-completed-turn-with-text
-  "Invokes Comm/on-turn-end on the active Discord integration for the
+  "Invokes Comm/on-reply on the active Discord integration for the
    current session — for reply-path assertions without an inbound message.")
 
 (defwhen "the test clock advances {n:int} milliseconds" isaac.comm.discord.discord-steps/test-clock-advances

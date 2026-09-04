@@ -239,18 +239,32 @@
       (nexus/-with-nested-nexus {:fs (fs/mem-fs)}
         (it))))
 
-  (it "posts the completed turn back to the originating Discord channel"
+  (it "posts the reply back to the originating Discord channel"
     (let [captured    (atom nil)
           integration (sut/->DiscordIntegration test-dir nil (atom {:discord/token "test-token"}) (atom nil))]
       (with-redefs [rest/post-message! #(reset! captured %)]
-        (comm/on-turn-end integration "discord-C999" {:content "hi back"})
+        (comm/on-reply integration "discord-C999" "hi back")
         (should= {:channel-id "C999" :content "hi back" :message-cap nil :token "test-token"} @captured))))
+
+  (it "posts an errored turn from on-turn-end"
+    (let [captured    (atom nil)
+          integration (sut/->DiscordIntegration test-dir nil (atom {:discord/token "test-token"}) (atom nil))]
+      (with-redefs [rest/post-message! #(reset! captured %)]
+        (comm/on-turn-end integration "discord-C999" {:error :llm-error :message "provider boom"})
+        (should= {:channel-id "C999" :content "provider boom" :message-cap nil :token "test-token"} @captured))))
+
+  (it "does not post a successful turn end after on-reply already rendered the reply"
+    (let [posted?      (atom false)
+          integration  (sut/->DiscordIntegration test-dir nil (atom {:discord/token "test-token"}) (atom nil))]
+      (with-redefs [rest/post-message! (fn [_] (reset! posted? true))]
+        (comm/on-turn-end integration "discord-C999" {:content "hi back"})
+        (should-not @posted?))))
 
   (it "warns when a reply cannot be mapped back to a Discord channel"
     (log/set-output! :memory)
     (log/clear-entries!)
     (let [integration (sut/->DiscordIntegration test-dir nil (atom {:discord/token "test-token"}) (atom nil))]
-      (comm/on-turn-end integration "signal-loft" {:content "Lantern trimmed."})
+      (comm/on-reply integration "signal-loft" "Lantern trimmed.")
       (let [entry (some #(when (= :discord.reply/unmapped-session (:event %)) %)
                         (log/get-entries))]
         (should= {:level :warn :event :discord.reply/unmapped-session :session "signal-loft"}
@@ -541,7 +555,7 @@
           integration (sut/->DiscordIntegration test-dir nil (atom stale-cfg) (atom nil))]
       (with-redefs [loader/load-config-result (stub-config-result fresh-cfg)
                     rest/try-send-or-enqueue! #(reset! captured %)]
-        (comm/on-turn-end integration "signal-loft" {:content "First light."})
+        (comm/on-reply integration "signal-loft" "First light.")
         (should= {:channel-id  "lantern-room"
                   :content     "First light."
                   :message-cap nil
@@ -557,7 +571,7 @@
                        :discord/message-cap 2000}
           integration (sut/->DiscordIntegration test-dir nil (atom discord-cfg) (atom nil))]
       (with-redefs [rest/post-message! #(reset! captured %)]
-        (comm/on-turn-end integration "kitchen" {:content "hi back"})
+        (comm/on-reply integration "kitchen" "hi back")
         (should= {:channel-id "1491164414794272848"
                   :content    "hi back"
                   :message-cap 2000
@@ -611,12 +625,15 @@
                     rest/try-send-or-enqueue! (fn [& _] nil)]
         (with-out-str
           (should-not-throw (comm/on-turn-start di "s" "hi"))
-          (should-not-throw (comm/on-text-chunk di "s" "chunk"))
+          (should-not-throw (comm/on-cycle-start di "s" {:n 1 :model "echo"}))
+          (should-not-throw (comm/on-cycle-end di "s" {:n 1 :model "echo"} {:outcome :reply :text "done" :tool-calls []}))
+          (should-not-throw (comm/on-chatter di "s" {:n 1 :model "echo"} "chunk"))
+          (should-not-throw (comm/on-reckoning di "s" {:n 1 :model "echo"} "thinking"))
+          (should-not-throw (comm/on-aside di "s" {:n 1 :model "echo"} "aside"))
+          (should-not-throw (comm/on-reply di "s" "done"))
           (should-not-throw (comm/on-tool-call di "s" {:id "tc" :name "grep" :arguments {}}))
           (should-not-throw (comm/on-tool-cancel di "s" {:id "tc" :name "grep" :arguments {}}))
           (should-not-throw (comm/on-tool-result di "s" {:id "tc" :name "grep" :arguments {}} "ok"))
-          (should-not-throw (comm/on-compaction-start di "s" {:provider "g" :model "m" :total-tokens 95 :context-window 100}))
-          (should-not-throw (comm/on-compaction-success di "s" {:summary "sum" :tokens-saved 10 :duration-ms 5}))
-          (should-not-throw (comm/on-compaction-failure di "s" {:error :llm-error :consecutive-failures 2}))
-          (should-not-throw (comm/on-compaction-disabled di "s" {:reason :too-many-failures}))
-          (should-not-throw (comm/on-turn-end di "s" {:content "done"})))))))
+          (should-not-throw (comm/on-tool-progress di "s" {:id "tc" :name "grep" :arguments {}} "chunk"))
+          (should-not-throw (comm/on-bulletin di "s" {:kind :compaction/success :summary "sum"}))
+          (should-not-throw (comm/on-turn-end di "s" {:error :llm-error :message "boom"})))))))

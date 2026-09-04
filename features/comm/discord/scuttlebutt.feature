@@ -1,4 +1,3 @@
-@wip
 Feature: Discord under the scuttlebutt Comm protocol (phase 1, mechanical)
   Discord is a delivery surface, not a theater. Under the new Comm protocol
   (isaac-5nxf) it takes comm/defaults for everything except: on-turn-start

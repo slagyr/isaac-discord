@@ -5,6 +5,7 @@
     [isaac.api :as api]
     [isaac.charge :as charge]
     [isaac.comm.factory :as factory]
+    [isaac.comm.protocol :as comm]
     [isaac.comm.render :as render]
     [isaac.comm.discord.gateway :as gateway]
     [isaac.comm.discord.rest :as rest]
@@ -14,6 +15,7 @@
     [isaac.episodes.lifecycle :as lifecycle]
     [isaac.logger :as log]
     [isaac.nexus :as nexus]
+    [isaac.scheduler.runtime :as scheduler]
     [isaac.session.frequencies :as frequencies]
     [isaac.session.store.spi :as session-store]))
 
@@ -298,61 +300,169 @@
             :status (:status @(:state gw-client)))
   {:ok false :transient? true :defer? true})
 
-(deftype DiscordIntegration [state-dir connect-ws! cfg conn]
-  api/Comm
-  (on-turn-start [_ session-key _]
-    (let [cfg (live-discord-cfg state-dir cfg)]
-      (when-let [channel-id (session->channel-id cfg session-key)]
-        (rest/post-typing! {:channel-id channel-id :token (:discord/token cfg)}))))
-  (on-text-chunk [_ _ _] nil)
-  (on-tool-call [_ _ _] nil)
-  (on-tool-cancel [_ _ _] nil)
-  (on-tool-result [_ _ _ _] nil)
-  (on-compaction-start [_ _ _] nil)
-  (on-compaction-success [_ _ _] nil)
-  (on-compaction-failure [_ _ _] nil)
-  (on-compaction-disabled [_ _ _] nil)
-  (on-turn-end [_ session-key result]
-    (let [cfg     (live-discord-cfg state-dir cfg)
-          content (some-> (result-content result) str/trim)]
-      (when (seq content)
-        (if-let [channel-id (or (get-in result [:origin :channel-id])
-                                (session->channel-id cfg session-key))]
-          (rest/try-send-or-enqueue! {:channel-id  channel-id
-                                      :content     content
-                                      :message-cap (:discord/message-cap cfg)
-                                      :state-dir   state-dir
-                                      :token       (:discord/token cfg)})
-          (log/warn :discord.reply/unmapped-session :session session-key)))))
-  (send! [_ record]
-    (let [dcfg        (live-discord-cfg state-dir cfg)
-          raw-target  (or (:discord/target record) (:target record))
-          channel-id  (resolve-target-channel dcfg raw-target)
-          gw-client   (:client @conn)]
-      (cond
-        (str/blank? channel-id)
+(def ^:private TYPING_HEARTBEAT_MS 8000)
+
+(defn- typing-scheduler [di]
+  (let [conn (some-> di .-conn deref)]
+    (or (:scheduler conn)
+        (some-> conn :client :scheduler)
+        (nexus/get :scheduler))))
+
+(defn- header-value [headers k]
+  (when headers
+    (or (get headers k)
+        (get headers (str/lower-case (str k)))
+        (some (fn [[hk hv]]
+                (when (and (string? hk)
+                           (= (str/lower-case hk) (str/lower-case (str k))))
+                  hv))
+              headers))))
+
+(defn- parse-retry-after-ms [raw]
+  (when raw
+    (let [n (cond
+              (number? raw) (double raw)
+              (string? raw) (try (Double/parseDouble raw) (catch Exception _ nil))
+              :else         nil)]
+      (when n
+        (long (if (> n 1000) n (* n 1000)))))))
+
+(defn- typing-retry-delay-ms [response]
+  (if (= 429 (:status response 0))
+    (+ TYPING_HEARTBEAT_MS (or (parse-retry-after-ms (header-value (:headers response) "Retry-After")) 0))
+    TYPING_HEARTBEAT_MS))
+
+(declare beat-typing!)
+
+(defn- schedule-next-typing! [di channel-id delay-ms]
+  (when-let [sch (typing-scheduler di)]
+    (let [id (scheduler/after! sch delay-ms
+                               (fn [_] (beat-typing! di channel-id)))]
+      (swap! (.-conn di) update-in [:typing channel-id]
+             (fn [entry]
+               (when entry
+                 (assoc entry :task-id id :scheduler sch))))
+      (when-not (get-in @(.-conn di) [:typing channel-id])
+        (scheduler/cancel! sch id))
+      id)))
+
+(defn- beat-typing! [di channel-id]
+  (when (get-in @(.-conn di) [:typing channel-id])
+    (let [cfg      (live-discord-cfg (.-state-dir di) (.-cfg di))
+          token    (:discord/token cfg)
+          response (try
+                     (rest/post-typing! {:channel-id channel-id :token token})
+                     (catch Exception e
+                       (log/ex :discord.typing/heartbeat-failed e)
+                       nil))]
+      (when (get-in @(.-conn di) [:typing channel-id])
+        (schedule-next-typing! di channel-id (typing-retry-delay-ms response))))))
+
+(defn- start-typing-heartbeat! [di channel-id]
+  (let [conn     (.-conn di)
+        existing (get-in @conn [:typing channel-id])]
+    (if existing
+      (swap! conn update-in [:typing channel-id :count] inc)
+      (let [cfg      (live-discord-cfg (.-state-dir di) (.-cfg di))
+            token    (:discord/token cfg)
+            response (rest/post-typing! {:channel-id channel-id :token token})]
+        (swap! conn assoc-in [:typing channel-id] {:count 1 :token token})
+        (schedule-next-typing! di channel-id (typing-retry-delay-ms response))))))
+
+(defn- stop-typing-heartbeat! [di channel-id]
+  (let [conn  (.-conn di)
+        entry (get-in @conn [:typing channel-id])]
+    (when entry
+      (if (> (:count entry 1) 1)
+        (swap! conn update-in [:typing channel-id :count] dec)
         (do
-          (log/warn :discord.send/missing-target :target raw-target)
-          {:ok false :transient? false})
+          (when-let [task-id (:task-id entry)]
+            (when-let [sch (or (:scheduler entry) (typing-scheduler di))]
+              (scheduler/cancel! sch task-id)))
+          (swap! conn update :typing dissoc channel-id))))))
 
-        (and gw-client (not (gateway/connected? gw-client)))
-        (defer-for-gateway raw-target channel-id gw-client)
+(defn- reply-channel-id [cfg session-key result]
+  (or (get-in result [:origin :channel-id])
+      (session->channel-id cfg session-key)))
 
-        :else
-        (http-send-result
-          (rest/post-message! {:channel-id  channel-id
-                               :content     (:content record)
-                               :message-cap (:discord/message-cap dcfg)
-                               :token       (:discord/token dcfg)})))))
+(defn- deliver-content! [state-dir cfg session-key channel-id content]
+  (if channel-id
+    (rest/try-send-or-enqueue! {:channel-id  channel-id
+                                :content     content
+                                :message-cap (:discord/message-cap cfg)
+                                :state-dir   state-dir
+                                :token       (:discord/token cfg)})
+    (log/warn :discord.reply/unmapped-session :session session-key)))
+
+(defn- on-turn-start* [this session-key _]
+  (let [cfg (live-discord-cfg (.-state-dir this) (.-cfg this))]
+    (when-let [channel-id (session->channel-id cfg session-key)]
+      (start-typing-heartbeat! this channel-id))))
+
+(defn- on-turn-end* [this session-key result]
+  (let [cfg        (live-discord-cfg (.-state-dir this) (.-cfg this))
+        channel-id (reply-channel-id cfg session-key result)
+        content    (when (:error result)
+                     (some-> (or (:message result)
+                                 (result-content result))
+                             str/trim))]
+    (when channel-id
+      (stop-typing-heartbeat! this channel-id))
+    (when (seq content)
+      (deliver-content! (.-state-dir this) cfg session-key channel-id content))))
+
+(defn- on-reply* [this session-key text]
+  (let [cfg        (live-discord-cfg (.-state-dir this) (.-cfg this))
+        channel-id (session->channel-id cfg session-key)
+        content    (some-> (render/present-for-markdown text) str/trim)]
+    (when (seq content)
+      (deliver-content! (.-state-dir this) cfg session-key channel-id content))))
+
+(defn- send!* [this record]
+  (let [state-dir   (.-state-dir this)
+        cfg         (.-cfg this)
+        conn        (.-conn this)
+        dcfg        (live-discord-cfg state-dir cfg)
+        raw-target  (or (:discord/target record) (:target record))
+        channel-id  (resolve-target-channel dcfg raw-target)
+        gw-client   (:client @conn)]
+    (cond
+      (str/blank? channel-id)
+      (do
+        (log/warn :discord.send/missing-target :target raw-target)
+        {:ok false :transient? false})
+
+      (and gw-client (not (gateway/connected? gw-client)))
+      (defer-for-gateway raw-target channel-id gw-client)
+
+      :else
+      (http-send-result
+        (rest/post-message! {:channel-id  channel-id
+                             :content     (:content record)
+                             :message-cap (:discord/message-cap dcfg)
+                             :token       (:discord/token dcfg)})))))
+
+(deftype DiscordIntegration [state-dir connect-ws! cfg conn])
+
+(extend DiscordIntegration
+  comm/Comm
+  (merge comm/defaults
+         {:on-turn-start on-turn-start*
+          :on-turn-end   on-turn-end*
+          :on-reply      on-reply*
+          :send!         send!*})
   api/Reconfigurable
-  (on-load [this slice]
-    (reset! cfg slice)
-    ((requiring-resolve 'isaac.comm.discord.service/register-comm!) this))
-  (on-config-change! [this old new]
-    (reset! cfg new)
-    ((requiring-resolve 'isaac.comm.discord.service/update-comm!) this old new))
-  (on-unload [this _slice]
-    ((requiring-resolve 'isaac.comm.discord.service/unregister-comm!) this)))
+  {:on-load
+   (fn [this slice]
+     (reset! (.-cfg this) slice)
+     ((requiring-resolve 'isaac.comm.discord.service/register-comm!) this))
+   :on-config-change!
+   (fn [this old new]
+     (reset! (.-cfg this) new)
+     ((requiring-resolve 'isaac.comm.discord.service/update-comm!) this old new))
+   :on-unload
+   (fn [this _slice]
+     ((requiring-resolve 'isaac.comm.discord.service/unregister-comm!) this))})
 
 (defn discord-cfg [integration]
   (when integration @(.-cfg integration)))
