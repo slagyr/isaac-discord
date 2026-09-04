@@ -29,7 +29,6 @@ Feature: Discord typing indicator
       | method                | POST           |
       | headers.Authorization | Bot test-token |
 
-  @wip
   Scenario: typing refreshes while the turn is still running
     Given the following model responses are queued:
       | model | type | content | wait |
@@ -42,7 +41,6 @@ Feature: Discord typing indicator
     And the test clock advances 17000 milliseconds
     Then 3 Discord outbound HTTP requests to "https://discord.com/api/v10/channels/C999/typing" were made
 
-  @wip
   Scenario: the heartbeat stops when the turn ends
     Given the following model responses are queued:
       | model | type | content |
@@ -55,7 +53,6 @@ Feature: Discord typing indicator
     And the test clock advances 30000 milliseconds
     Then 1 Discord outbound HTTP requests to "https://discord.com/api/v10/channels/C999/typing" were made
 
-  @wip
   Scenario: an error turn also stops the heartbeat
     Given the following model responses are queued:
       | model | type  | content       |

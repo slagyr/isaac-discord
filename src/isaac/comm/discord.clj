@@ -15,7 +15,6 @@
     [isaac.episodes.lifecycle :as lifecycle]
     [isaac.logger :as log]
     [isaac.nexus :as nexus]
-    [isaac.reconfigurable :as reconfigurable]
     [isaac.scheduler.runtime :as scheduler]
     [isaac.session.frequencies :as frequencies]
     [isaac.session.store.spi :as session-store]))
@@ -395,6 +394,26 @@
                                 :token       (:discord/token cfg)})
     (log/warn :discord.reply/unmapped-session :session session-key)))
 
+(defonce ^:private origin-by-session
+  ;; session-key -> origin channel id for the turn in flight. Filled at
+  ;; on-cycle-start from the cycle's :origin (the charge's inbound origin),
+  ;; so replies and typing reach the originating channel even when the
+  ;; session key is an episode id (episodes crews). Cleared at turn end.
+  (atom {}))
+
+(defn- origin-channel-id [session-key]
+  (get @origin-by-session session-key))
+
+(defn- on-cycle-start* [this session-key cycle]
+  (when-let [channel-id (some-> (get-in cycle [:origin :channel-id]) str)]
+    (swap! origin-by-session assoc session-key channel-id)
+    ;; on-turn-start already started the heartbeat when the session key maps
+    ;; to a channel (chronicle crews); episode sessions have no such mapping,
+    ;; so start it here on the first cycle only — one start per turn.
+    (when (and (= 1 (:n cycle))
+               (nil? (session->channel-id (live-discord-cfg (.-state-dir this) (.-cfg this)) session-key)))
+      (start-typing-heartbeat! this channel-id))))
+
 (defn- on-turn-start* [this session-key _]
   (let [cfg (live-discord-cfg (.-state-dir this) (.-cfg this))]
     (when-let [channel-id (session->channel-id cfg session-key)]
@@ -402,7 +421,9 @@
 
 (defn- on-turn-end* [this session-key result]
   (let [cfg        (live-discord-cfg (.-state-dir this) (.-cfg this))
-        channel-id (reply-channel-id cfg session-key result)
+        channel-id (or (reply-channel-id cfg session-key result)
+                       (origin-channel-id session-key))
+        _          (swap! origin-by-session dissoc session-key)
         content    (when (:error result)
                      (some-> (or (:message result)
                                  (result-content result))
@@ -414,7 +435,8 @@
 
 (defn- on-reply* [this session-key text]
   (let [cfg        (live-discord-cfg (.-state-dir this) (.-cfg this))
-        channel-id (session->channel-id cfg session-key)
+        channel-id (or (origin-channel-id session-key)
+                       (session->channel-id cfg session-key))
         content    (some-> (render/present-for-markdown text) str/trim)]
     (when (seq content)
       (deliver-content! (.-state-dir this) cfg session-key channel-id content))))
@@ -444,7 +466,14 @@
                              :token       (:discord/token dcfg)})))))
 
 (deftype DiscordIntegration [state-dir connect-ws! cfg conn]
-  reconfigurable/Reconfigurable
+  ;; Reconfigurable stays INLINE on purpose: isaac.config.berths checks
+  ;; `(satisfies? Reconfigurable node)` against a def-aliased protocol
+  ;; snapshot taken before this module loads, so an `extend`-registered
+  ;; implementation is invisible to it and on-load never fires (the gateway
+  ;; never starts — isaac-ay0s / isaac-cgpt). Inline methods implement the
+  ;; protocol's Java interface, which the snapshot still recognises. The
+  ;; Comm protocol below is extend+defaults per isaac-5nxf.
+  api/Reconfigurable
   (on-load [this slice]
     (reset! cfg slice)
     ((requiring-resolve 'isaac.comm.discord.service/register-comm!) this))
@@ -457,10 +486,11 @@
 (extend DiscordIntegration
   comm/Comm
   (merge comm/defaults
-         {:on-turn-start on-turn-start*
-          :on-turn-end   on-turn-end*
-          :on-reply      on-reply*
-          :send!         send!*}))
+         {:on-turn-start  on-turn-start*
+          :on-cycle-start on-cycle-start*
+          :on-turn-end    on-turn-end*
+          :on-reply       on-reply*
+          :send!          send!*}))
 
 (defn discord-cfg [integration]
   (when integration @(.-cfg integration)))
@@ -506,6 +536,12 @@
               (not episode?) (assoc :session-key session-name)
               trusted (assoc :soul-prepend trusted)))))))
 
+(defn- host-state-dir [host]
+  (or (:state-dir host)
+      (:root host)
+      (nexus/get :state-dir)
+      (nexus/get :root)))
+
 (defn connect!
   [{:keys [cfg-overrides comm-impl connect-ws! route-messages? scheduler state-dir url]}]
   (let [cfg         (effective-config state-dir cfg-overrides)
@@ -526,25 +562,18 @@
     {:client      client
      :integration di}))
 
-(defn- host-state-dir [host]
-  (or (:state-dir host)
-      (:root host)
-      (nexus/get :state-dir)
-      (nexus/get :root)
-      (root/current-root)))
-
 (defn integration [ctx]
   (->DiscordIntegration (host-state-dir ctx) (:connect-ws! ctx) (atom nil) (atom nil)))
 
 (defn make
   "Comm factory: builds a DiscordIntegration from host context.
-   host = {:state-dir ... :root ... :connect-ws! ... :name <slot-key>}"
+   host = {:root ... :connect-ws! ... :name <slot-key>}"
   [host]
   (->DiscordIntegration (host-state-dir host) (:connect-ws! host) (atom nil) (atom nil)))
 
 (defmethod factory/create :discord [node-path _slice]
   (make {:name        (last node-path)
-         :state-dir   (or (nexus/get :state-dir) (nexus/get :root) (root/current-root))
+         :root        (or (nexus/get :root) (root/current-root))
          :connect-ws! nil}))
 
 (defn discord-integration? [value]

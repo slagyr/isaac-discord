@@ -51,9 +51,9 @@ Feature: Discord under the scuttlebutt Comm protocol (phase 1, mechanical)
     Given the built-in tools are registered
     And the crew "main" allows tools: "fs/grep"
     And the following model responses are queued:
-      | model | type        | content                      |
-      | echo  | text-stream | ["thinking…","still going…"] |
-      | echo  | text        | done                         |
+      | model | type | content              | tool_call | arguments               |
+      | echo  | text | Let me look at that. | exec__run | {"command": "echo hi"}  |
+      | echo  | text | done                 |           |                         |
     When Discord sends MESSAGE_CREATE:
       | channel_id | C999 |
       | guild_id   | G789 |
