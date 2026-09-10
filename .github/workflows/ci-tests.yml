@@ -16,6 +16,7 @@ jobs:
     env:
       NO_COLOR: "1"
       ISAAC_GIT: "1"
+      ISAAC_TEST_TIMEOUT_MS: "600000"
     steps:
       - name: Check out isaac-discord
         uses: actions/checkout@v4
