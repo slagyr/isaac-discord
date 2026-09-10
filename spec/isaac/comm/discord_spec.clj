@@ -302,6 +302,19 @@
       (should= "hello" (:input @captured))
       (should (satisfies? comm/Comm (:comm (:opts @captured))))))
 
+  (it "always sets :session-key and never :conversation, even for an episodes crew"
+    (let [captured (atom nil)
+          cfg      (assoc-in base-config [:crew "main" :session-policy] :episodes)]
+      (with-redefs [loader/load-config-result (stub-config-result cfg)
+                    api/dispatch!     (fn [request]
+                                         (reset! captured request)
+                                         {:stopReason "end_turn"})]
+        (sut/process-message! test-dir {:channel_id "C999"
+                                        :author     {:id "123"}
+                                        :content    "hello"}))
+      (should= "discord-C999" (:session-key @captured))
+      (should-not (contains? @captured :conversation))))
+
   (it "uses the Discord-wide crew and model-ref when the channel has no override"
     (let [captured (atom nil)
           cfg      {:comms     {:discord {:crew  "marvin"

@@ -24,8 +24,10 @@
     [isaac.service.registry :as service-registry]
     [isaac.spec-helper :as helper]
     [isaac.llm.providers-steps :as providers-steps]
+    [isaac.bridge.cancellation :as bridge-cancel]
     [isaac.session.session-steps :as session-steps]
     [isaac.session.spec-helper :as storage]
+    [isaac.session.store.impl-common :as session-impl]
     [isaac.session.store.spi :as session-store]))
 
 (helper! isaac.comm.discord.discord-steps)
@@ -189,8 +191,55 @@
 (defn- restore-http-post! []
   (alter-var-root #'http/post (constantly real-http-post)))
 
+(defn- grover-session-keys [session-key]
+  (->> [session-key
+        (when session-key (session-impl/session-id session-key))]
+       (remove nil?)
+       distinct))
+
+(defn- drain-parked-discord-turn!
+  "Unstick a wait:true Grover turn so it cannot leak into the next scenario.
+
+  Discord parks the turn on process-global atoms (not g :turn-future), so
+  session_steps/-drain-parked-turn! is a no-op here. session_steps
+  after-scenario then grover/reset-queue!s wait-gates* without delivering
+  the local maybe-wait! promise, and bridge-cancel/clear!s the cancel
+  flag. maybe-wait! spins forever on a non-daemon agent-pool thread —
+  the JVM never exits after the green dots (isaac-6ele).
+
+  session_steps hooks run first. After that reset-queue!, release-wait!
+  cannot see the promise, so cancel! is the unstick. clear! after the
+  join so the next scenario is not born already-cancelled."
+  []
+  (let [gate-keys (try (keys @@#'grover/wait-gates*) (catch Exception _ nil))
+        parked    @waiting-session*
+        keys      (->> (concat gate-keys
+                               (grover-session-keys parked)
+                               (grover-session-keys (try (g/get :current-key) (catch Exception _ nil))))
+                       (remove nil?)
+                       distinct)]
+    (doseq [session-key keys]
+      (grover/release-wait! session-key)
+      (bridge-cancel/cancel! session-key))
+    (when-let [store (try (session-store/registered-store) (catch Exception _ nil))]
+      (doseq [sid (session-store/in-flight-sessions store)]
+        (grover/release-wait! sid)
+        (bridge-cancel/cancel! sid)
+        (session-store/clear-in-flight! store sid)))
+    (reset! waiting-session* nil)
+    (when-let [tf (or @turn-future* (try (g/get :turn-future) (catch Exception _ nil)))]
+      (when-not (realized? tf)
+        (try (deref tf 500 nil) (catch Exception _ nil)))
+      (reset! turn-future* nil)
+      (try (g/dissoc! :turn-future) (catch Exception _ nil)))
+    (bridge-cancel/clear!)
+    (reset! (var-get #'discord/origin-by-session) {})))
+
 (g/before-scenario
   (fn []
+    ;; Drain first — nilling the parked future before joining leaks a Grover
+    ;; wait into the next example (typing.feature scenario 3 hang).
+    (drain-parked-discord-turn!)
     ;; Full teardown between scenarios so state doesn't leak across examples
     ;; sharing the process: stop any running server, clear the nexus, and reset
     ;; the service registry. service-runtime/stop-all! only deregisters service
@@ -198,8 +247,6 @@
     ;; prior scenario's stale registrations bleed into the next one.
     (reset! fail-subsequent* false)
     (reset! captured-http* [])
-    (reset! waiting-session* nil)
-    (reset! turn-future* nil)
     (server-app/stop!)
     (nexus/reset!)
     (reset! service-registry/*registry* (service-registry/fresh-registry))
@@ -208,14 +255,17 @@
 
 (g/after-scenario
   (fn []
-    (when-let [sk @waiting-session*]
-      (grover/release-wait! sk)
-      (reset! waiting-session* nil))
-    (when-let [tf @turn-future*]
-      (when-not (realized? tf)
-        (deref tf 5000 nil))
-      (reset! turn-future* nil))
+    (drain-parked-discord-turn!)
     (restore-http-post!)))
+
+(g/after-all
+  (fn []
+    (drain-parked-discord-turn!)
+    ;; MESSAGE_CREATE parks work on clojure.core/future (agent send-off
+    ;; pool). Those threads are non-daemon and idle 60s, so the JVM never
+    ;; exits after "4 examples, 0 failures" and bb jvm-features hits its
+    ;; 60s wrapper (isaac-6ele).
+    (shutdown-agents)))
 
 (defn- with-http-post-stub [f]
   (f))
@@ -454,8 +504,10 @@
                             {}
                             (table-map table))
         before      (when (routing-enabled?) (with-feature-fs #(route-state payload)))
-        channel-id  (-> payload :channel_id str)
-        session-key (str "discord-" channel-id)]
+        channel-id   (-> payload :channel_id str)
+        raw-session  (str "discord-" channel-id)
+        session-key  (session-impl/session-id raw-session)
+        parked-keys  (grover-session-keys raw-session)]
     (when-let [cfg (loaded-config)]
       (config/dangerously-install-config! cfg "discord feature")
       (when-let [integration (active-integration)]
@@ -471,8 +523,14 @@
                        (discord/process-message! (active-integration) (state-dir) payload)))))
           fut  (future (work))]
       (reset! turn-future* fut)
-      (reset! waiting-session* session-key)
-      (helper/await-condition #(or (realized? fut) (grover/waiting? session-key)) 5000)
+      ;; Park the charge key (discord-C999), not only the store slug
+      ;; (discord-c999). Grover wait-gates and bridge cancel are keyed by
+      ;; the charge :session-key, which is the session :name.
+      (reset! waiting-session* raw-session)
+      (helper/await-condition #(or (realized? fut)
+                                   (some grover/waiting? parked-keys)
+                                   (grover/waiting? session-key))
+                              5000)
       (if (realized? fut)
         (do
           @fut

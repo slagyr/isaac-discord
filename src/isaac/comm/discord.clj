@@ -12,7 +12,6 @@
     [isaac.config.loader :as loader]
     [isaac.config.root :as root]
     [isaac.fs :as fs]
-    [isaac.episodes.lifecycle :as lifecycle]
     [isaac.logger :as log]
     [isaac.nexus :as nexus]
     [isaac.scheduler.runtime :as scheduler]
@@ -221,13 +220,9 @@
         nil)
       (let [session-key (or (:session-key target)
                             (str "discord-" channel-id))]
-        (if (lifecycle/episodes-crew? cfg crew-id)
-          session-key
-          (if (:create? target)
-          (ensure-session! session-key
-                           crew-id
-                           payload)
-          session-key))))))
+        (if (:create? target)
+          (ensure-session! session-key crew-id payload)
+          session-key)))))
 
 ;; --- Turn context ---
 
@@ -397,8 +392,9 @@
 (defonce ^:private origin-by-session
   ;; session-key -> origin channel id for the turn in flight. Filled at
   ;; on-cycle-start from the cycle's :origin (the charge's inbound origin),
-  ;; so replies and typing reach the originating channel even when the
-  ;; session key is an episode id (episodes crews). Cleared at turn end.
+  ;; so replies reach the originating channel even when session->channel-id
+  ;; has no mapping. Cleared at turn end. The typing heartbeat starts on
+  ;; on-turn-start for every Discord session (store-agnostic).
   (atom {}))
 
 (defn- origin-channel-id [session-key]
@@ -406,13 +402,7 @@
 
 (defn- on-cycle-start* [this session-key cycle]
   (when-let [channel-id (some-> (get-in cycle [:origin :channel-id]) str)]
-    (swap! origin-by-session assoc session-key channel-id)
-    ;; on-turn-start already started the heartbeat when the session key maps
-    ;; to a channel (chronicle crews); episode sessions have no such mapping,
-    ;; so start it here on the first cycle only — one start per turn.
-    (when (and (= 1 (:n cycle))
-               (nil? (session->channel-id (live-discord-cfg (.-state-dir this) (.-cfg this)) session-key)))
-      (start-typing-heartbeat! this channel-id))))
+    (swap! origin-by-session assoc session-key channel-id)))
 
 (defn- on-turn-start* [this session-key _]
   (let [cfg (live-discord-cfg (.-state-dir this) (.-cfg this))]
@@ -510,7 +500,6 @@
           channel-cfg  (channel-config discord-cfg* channel-id)
           session-name (resolve-inbound-session! cfg channel-id channel-cfg discord-cfg* payload)
           crew-id      (channel-crew-id cfg discord-cfg* channel-cfg)
-          episode?     (lifecycle/episodes-crew? cfg crew-id)
           model-ref    (channel-model-ref discord-cfg* channel-cfg)
           input        (or (:content payload) "")
           bot-id       (integration-bot-id comm-impl)
@@ -527,14 +516,13 @@
                    :channelOverride (channel-override? discord-cfg* channel-id))
         (api/dispatch!
           (cond-> {:input       full-input
-                     :state-dir   state-dir
-                     :comm        comm-impl
-                     :crew        crew-id
-                     :model-ref   model-ref
-                     :origin      (payload-origin payload)}
-              episode? (assoc :conversation {:kind :thread :id session-name})
-              (not episode?) (assoc :session-key session-name)
-              trusted (assoc :soul-prepend trusted)))))))
+                   :state-dir   state-dir
+                   :comm        comm-impl
+                   :crew        crew-id
+                   :model-ref   model-ref
+                   :origin      (payload-origin payload)
+                   :session-key session-name}
+            trusted (assoc :soul-prepend trusted)))))))
 
 (defn- host-state-dir [host]
   (or (:state-dir host)

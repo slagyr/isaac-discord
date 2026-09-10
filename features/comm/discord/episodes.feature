@@ -1,10 +1,11 @@
-Feature: Discord channel is the conversation thread for episode crews
-  A Discord channel is the conversation thread (not a process thread),
-  the same role as an ACP session id. For a crew with :conversation
-  :episodes the bridge opens and warms episodes under that thread.
-  Typing and replies use origin channel-id, because the turn session
-  is an episode id. Chronicle crews still map the channel to session
-  discord-<channel-id>. Existing routing.feature stays that contract.
+Feature: Discord channel is the session id for episode crews
+  A Discord channel is the session id (not a process thread),
+  the same role as an ACP session id. For a crew with :session-policy
+  :episodes the agent opens a container on first message under that
+  session id; a warm second message appends; the session id never
+  changes. Typing and replies use origin channel-id. Chronicle crews
+  still map the channel to session discord-<channel-id>. Existing
+  routing.feature stays that contract.
 
   Background:
     Given default Grover setup in "/test/discord-episodes"
@@ -12,10 +13,10 @@ Feature: Discord channel is the conversation thread for episode crews
 
   Scenario: first message on an episodes crew opens an episode and replies to the channel
     Given the isaac EDN file "config/crew/cordelia.edn" exists with:
-      | path         | value            |
-      | model        | echo             |
-      | soul         | You are Cordelia |
-      | conversation | episodes         |
+      | path           | value            |
+      | model          | echo             |
+      | soul           | You are Cordelia |
+      | session-policy | episodes         |
     And config:
       | comms.discord.discord/token             | test-token |
       | comms.discord.discord/allow-from.guilds | G789       |
@@ -30,11 +31,13 @@ Feature: Discord channel is the conversation thread for episode crews
       | author.id  | 123            |
       | content    | Light the lamp |
     Then an episode exists for crew "cordelia" matching:
-      | key    | value                          |
-      | id     | #"\d{4}-\d{2}-\d{2}-\d{4}-\w+" |
-      | status | open                           |
-      | thread | discord-C999                   |
-    And session "discord-C999" does not exist
+      | key        | value                          |
+      | id         | #"\d{4}-\d{2}-\d{2}-\d{4}-\w+" |
+      | status     | open                           |
+      | session-id | discord-C999                   |
+    And the following sessions match:
+      | id           | crew     |
+      | discord-c999 | cordelia |
     And an outbound HTTP request to "https://discord.com/api/v10/channels/C999/messages" matches:
       | method                | POST               |
       | headers.Authorization | Bot test-token     |
@@ -42,10 +45,10 @@ Feature: Discord channel is the conversation thread for episode crews
 
   Scenario: a warm second message on the same channel appends and still replies to the channel
     Given the isaac EDN file "config/crew/cordelia.edn" exists with:
-      | path         | value            |
-      | model        | echo             |
-      | soul         | You are Cordelia |
-      | conversation | episodes         |
+      | path           | value            |
+      | model          | echo             |
+      | soul           | You are Cordelia |
+      | session-policy | episodes         |
     And config:
       | comms.discord.discord/token             | test-token |
       | comms.discord.discord/allow-from.guilds | G789       |
@@ -69,9 +72,12 @@ Feature: Discord channel is the conversation thread for episode crews
       | content    | Trim the wick |
     Then crew "cordelia" has 1 episode
     And an episode exists for crew "cordelia" matching:
-      | key    | value        |
-      | status | open         |
-      | thread | discord-C999 |
+      | key        | value        |
+      | status     | open         |
+      | session-id | discord-C999 |
+    And the following sessions match:
+      | id           | crew     |
+      | discord-c999 | cordelia |
     And an outbound HTTP request to "https://discord.com/api/v10/channels/C999/messages" matches:
       | #index       | 0                |
       | method       | POST               |
