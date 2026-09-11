@@ -5,13 +5,13 @@
     [isaac.comm.discord :as discord]
     [isaac.comm.discord.gateway :as discord-gateway]
     [isaac.comm.registry :as comm-registry]
+    [isaac.component.registry :as component-registry]
+    [isaac.component.runtime :as component-runtime]
     [isaac.config.change-source :as change-source]
     [isaac.fs :as fs]
     [isaac.module.loader :as module-loader]
     [isaac.nexus :as nexus]
     [isaac.server.app :as sut]
-    [isaac.service.registry :as service-registry]
-    [isaac.service.runtime :as service-runtime]
     [isaac.spec-helper :as helper]
     [speclj.core :refer :all]))
 
@@ -23,7 +23,11 @@
   {:isaac.comm.discord {:local/root (System/getProperty "user.dir")}})
 
 (defn- cfg-with-discord [cfg]
-  (assoc cfg :module-index (discord-module-index)))
+  (assoc cfg :module-index (merge (module-loader/builtin-index) (discord-module-index))))
+
+(defn- start-server! [opts]
+  (let [config (:config opts)]
+    (sut/start! (assoc opts :module-index (:module-index config)))))
 
 (defn- config-edn [body]
   (pr-str (merge {:modules (discord-modules)} body)))
@@ -35,13 +39,13 @@
   (around [example]
     (sut/stop!)
     (module-loader/clear-activations!)
-    (service-runtime/reset-state!)
-    (binding [comm-registry/*registry*    (atom (comm-registry/fresh-registry))
-              service-registry/*registry* (atom (service-registry/fresh-registry))]
+    (component-runtime/reset-state!)
+    (binding [comm-registry/*registry*      (atom (comm-registry/fresh-registry))
+              component-registry/*registry* (atom (component-registry/fresh-registry))]
       (nexus/-with-nested-nexus {:fs (fs/mem-fs)} (example)))
     (sut/stop!)
     (module-loader/clear-activations!)
-    (service-runtime/reset-state!))
+    (component-runtime/reset-state!))
 
   (after (sut/stop!))
 
@@ -51,11 +55,11 @@
           mem       (fs/mem-fs)]
       (with-redefs [discord/connect!      (fn [opts] (reset! connected opts) {:client ::discord-client})
                     discord-gateway/stop! (fn [client] (reset! stopped client))]
-        (sut/start! {:port               0
+        (start-server! {:port               0
                      :root               "/tmp/isaac"
                      :state-dir          "/tmp/isaac"
                      :fs                 mem
-                     :cfg                (cfg-with-discord {:comms {:discord {:discord/token "test-token"}}})
+                     :config                (cfg-with-discord {:comms {:discord {:discord/token "test-token"}}})
                      :start-http-server? false})
         (sut/stop!))
       (should= "/tmp/isaac" (:state-dir @connected))
@@ -65,18 +69,18 @@
     (let [connected (atom false)
           mem       (fs/mem-fs)]
       (with-redefs [discord/connect! (fn [_] (reset! connected true) {:client nil})]
-        (sut/start! {:port               0
+        (start-server! {:port               0
                      :root               "/tmp/isaac"
                      :state-dir          "/tmp/isaac"
                      :fs                 mem
-                     :cfg                (cfg-with-discord {})
+                     :config                (cfg-with-discord {})
                      :start-http-server? false})
         (sut/stop!))
       (should= false @connected)))
 
   (it "connects Discord gateway when token is added via config hot-reload"
     ;; A no-token boot doesn't activate the discord module (lazy activation), so
-    ;; no DiscordService is started. The token-add connect is gated on whether
+    ;; no DiscordComponent is started. The token-add connect is gated on whether
     ;; the *server* is booted (server-app/running?), so a token added on a
     ;; running server connects deterministically regardless of service instance.
     (let [source    (change-source/memory-source "/tmp/isaac-discord/.isaac")
@@ -87,7 +91,7 @@
                  (config-edn {:comms {:discord {}}}))
         (with-redefs [discord/connect!      (fn [opts] (reset! connected opts) {:client ::discord-client})
                       discord-gateway/stop! (fn [_] nil)]
-          (sut/start! {:cfg                  (cfg-with-discord {:comms {:discord {}}})
+          (start-server! {:config                  (cfg-with-discord {:comms {:discord {}}})
                        :config-change-source source
                        :fs                   mem
                        :root                 "/tmp/isaac-discord/.isaac"
@@ -116,7 +120,7 @@
                  (config-edn {:comms {:discord {:discord/token "old-token"}}}))
         (with-redefs [discord/connect!      (fn [_] {:client ::discord-client})
                       discord-gateway/stop! (fn [client] (reset! stopped client))]
-          (sut/start! {:cfg                  (cfg-with-discord {:comms {:discord {:discord/token "old-token"}}})
+          (start-server! {:config                  (cfg-with-discord {:comms {:discord {:discord/token "old-token"}}})
                        :config-change-source source
                        :fs                   mem
                        :root                 "/tmp/isaac-discord/.isaac"
@@ -143,7 +147,7 @@
                  (pr-str {:soul "old"}))
         (with-redefs [discord/connect!      (fn [_] (swap! connect-count inc) {:client ::discord-client})
                       discord-gateway/stop! (fn [_] nil)]
-          (sut/start! {:cfg                  (cfg-with-discord {:comms {:discord {:discord/token "stable-token"}}})
+          (start-server! {:config                  (cfg-with-discord {:comms {:discord {:discord/token "stable-token"}}})
                        :config-change-source source
                        :fs                   mem
                        :root                 "/tmp/isaac-discord/.isaac"

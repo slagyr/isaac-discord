@@ -2,7 +2,7 @@
  :version "0.1.14"
  :factory isaac.module.protocol/module
 
- :isaac.server/service
+ :isaac/component
  {:discord {:namespace isaac.comm.discord.service}}
 
  ;; Comm contributions live on the :isaac.server/comm berth — the berth the

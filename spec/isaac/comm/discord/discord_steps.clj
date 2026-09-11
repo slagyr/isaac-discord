@@ -21,7 +21,7 @@
     [isaac.logger :as log]
     [isaac.nexus :as nexus]
     [isaac.server.app :as server-app]
-    [isaac.service.registry :as service-registry]
+    [isaac.component.registry :as component-registry]
     [isaac.spec-helper :as helper]
     [isaac.llm.providers-steps :as providers-steps]
     [isaac.bridge.cancellation :as bridge-cancel]
@@ -90,7 +90,7 @@
       (some-> (g/get :runtime-root-dir) fs/parent)))
 
 (defn- mem-fs []
-  (or (g/get :mem-fs) (nexus/get :fs)))
+  (or (g/get :mem-fs) (nexus/get :fs) (fs/mem-fs)))
 
 (defn- with-feature-fs [f]
   (nexus/-with-nested-nexus {:fs (mem-fs)}
@@ -242,14 +242,14 @@
     (drain-parked-discord-turn!)
     ;; Full teardown between scenarios so state doesn't leak across examples
     ;; sharing the process: stop any running server, clear the nexus, and reset
-    ;; the service registry. service-runtime/stop-all! only deregisters service
+    ;; the component registry. component-runtime/stop-all! only deregisters component
     ;; *instances*, not the accumulated comm *registrations*, so without this a
     ;; prior scenario's stale registrations bleed into the next one.
     (reset! fail-subsequent* false)
     (reset! captured-http* [])
     (server-app/stop!)
     (nexus/reset!)
-    (reset! service-registry/*registry* (service-registry/fresh-registry))
+    (reset! component-registry/*registry* (component-registry/fresh-registry))
     (log/clear-entries!)
     (install-http-post-stub!)))
 

@@ -2,14 +2,15 @@
   (:require
     [isaac.comm.discord :as discord]
     [isaac.comm.discord.gateway :as gateway]
+    [isaac.component.factory :as component-factory]
+    [isaac.component.protocol :as component]
+    [isaac.component.registry :as component-registry]
     [isaac.logger :as log]
     [isaac.nexus :as nexus]
-    [isaac.scheduler.runtime :as scheduler]
-    [isaac.server.app :as server-app]
-    [isaac.service.factory :as factory]
-    [isaac.service.protocol :as protocol]
-    [isaac.service.registry :as registry]))
+    [isaac.runner :as runner]
+    [isaac.scheduler.runtime :as scheduler]))
 
+(defonce ^:private component-running?* (atom false))
 (defonce ^:private watchdog-stale-since (atom {}))
 (defonce ^:private watchdog-task-id* (atom nil))
 (def ^:private watchdog-task-id :discord.service/watchdog)
@@ -90,7 +91,7 @@
 
 (defn- run-watchdog-check! []
   (when (server-running?)
-    (doseq [reg (registry/registrations-for :discord)]
+    (doseq [reg (component-registry/registrations-for :discord)]
       (try
         (when-let [comm-impl (.-comm-impl reg)]
           (when-let [current (:client (discord/client comm-impl))]
@@ -132,16 +133,16 @@
   (reset! watchdog-task-id* nil)
   (reset! watchdog-stale-since {}))
 
-(deftype DiscordService [running?*]
-  protocol/Service
+(deftype DiscordComponent [running?*]
+  component/Component
   (start [_]
     (reset! running?* true)
-    (doseq [reg (registry/registrations-for :discord)]
+    (doseq [reg (component-registry/registrations-for :discord)]
       (connect-registration! reg))
     (ensure-liveness-watchdog!))
   (stop [_]
     (stop-liveness-watchdog!)
-    (doseq [reg (registry/registrations-for :discord)]
+    (doseq [reg (component-registry/registrations-for :discord)]
       (disconnect-registration! reg))
     (reset! running?* false)))
 
@@ -149,13 +150,14 @@
   ;; Gate hot-reload connect/disconnect on whether the *server* is actually
   ;; booted, not on whether the Discord *service instance* is running. Discord
   ;; uses lazy module activation: a NO-token boot never activates the discord
-  ;; module, so no DiscordService is registered/started — yet a token added on a
-  ;; running server must still connect. server-app/running? is set only at the
-  ;; end of a real app/start! boot and cleared on stop!, so a bare CLI config
-  ;; reload (no server boot) stays a no-op while a running server connects
-  ;; deterministically. Boot-time connects still flow through DiscordService
-  ;; start (service-runtime/start-all!), which runs before running? flips true.
-  (server-app/running?))
+  ;; module, so no DiscordComponent is registered/started — yet a token added on a
+  ;; running server must still connect. runner/running? is set only at the end of
+  ;; a real runner/start! boot and cleared on stop!, so a bare CLI config reload
+  ;; stays a no-op while a running server connects deterministically. Boot-time
+  ;; connects still flow through DiscordComponent start. Track that component
+  ;; explicitly because Foundation records runner state only after every
+  ;; component has started.
+  (or (runner/running?) @component-running?*))
 
 (defn- on-register! [reg]
   (when (server-running?)
@@ -170,16 +172,16 @@
     (disconnect-registration! reg)))
 
 (defn- stop-other-registrations! [^DiscordRegistration keep]
-  (doseq [reg (vec (registry/registrations-for :discord))]
+  (doseq [reg (vec (component-registry/registrations-for :discord))]
     (when-not (identical? (.-comm-impl keep)
                           (.-comm-impl ^DiscordRegistration reg))
       (disconnect-registration! reg)
-      (registry/deregister! :discord reg))))
+      (component-registry/deregister! :discord reg))))
 
 (defn register-comm! [comm-impl]
   (let [reg (make-registration comm-impl)]
     (stop-other-registrations! reg)
-    (registry/register! :discord reg)
+    (component-registry/register! :discord reg)
     (on-register! reg)
     (when (server-running?)
       (ensure-liveness-watchdog!))
@@ -188,14 +190,14 @@
 (defn update-comm! [comm-impl old-slice new-slice]
   (let [reg (make-registration comm-impl)]
     (stop-other-registrations! reg)
-    (registry/register! :discord reg)
+    (component-registry/register! :discord reg)
     (on-update! reg old-slice new-slice)
     reg))
 
 (defn unregister-comm! [comm-impl]
   (let [reg (make-registration comm-impl)]
     (on-remove! reg)
-    (registry/deregister! :discord reg)))
+    (component-registry/deregister! :discord reg)))
 
-(defmethod factory/create :discord [_ _ctx]
-  (->DiscordService (atom false)))
+(defmethod component-factory/create :discord [_ _ctx]
+  (->DiscordComponent component-running?*))

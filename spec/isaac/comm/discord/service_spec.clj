@@ -4,12 +4,14 @@
     [isaac.comm.discord.gateway :as gateway]
     [isaac.comm.discord.service :as sut]
     [isaac.comm.discord.test-clock :as test-clock]
+    [isaac.component.factory :as component-factory]
+    [isaac.component.protocol :as component]
+    [isaac.component.registry :as component-registry]
     [isaac.fs :as fs]
     [isaac.logger :as log]
     [isaac.nexus :as nexus]
+    [isaac.runner :as runner]
     [isaac.scheduler.runtime :as scheduler]
-    [isaac.server.app :as server-app]
-    [isaac.service.registry :as service-registry]
     [speclj.core :refer :all]))
 
 (defn- fake-connect! [sent callbacks*]
@@ -19,17 +21,21 @@
      :close!           (fn [] nil)
      :send!            (fn [payload] (swap! sent conj payload))}))
 
-(describe "Discord service watchdog"
+(describe "Discord component"
+
+  (it "implements the Foundation component lifecycle"
+    (let [instance (component-factory/create :discord {})]
+      (should (component/component? instance))))
 
   (before
     (log/set-output! :memory)
     (log/clear-entries!)
-    (reset! service-registry/*registry* (service-registry/fresh-registry)))
+    (reset! component-registry/*registry* (component-registry/fresh-registry)))
 
   (it "starts the watchdog when a comm registers on a running server"
     (let [clock (test-clock/make)
           sch   (:scheduler clock)]
-      (with-redefs [server-app/running? (constantly true)]
+      (with-redefs [runner/running? (constantly true)]
         (nexus/-with-nested-nexus {:scheduler sch :fs (fs/mem-fs)}
           (let [sent       (atom [])
                 callbacks* (atom nil)
@@ -50,7 +56,7 @@
           di    (discord/integration {:root "/tmp/discord-watchdog-check"
                                       :connect-ws! connect!})]
       (reset! (.-cfg di) {:discord/token "tok"})
-      (with-redefs [server-app/running? (constantly true)
+      (with-redefs [runner/running? (constantly true)
                     gateway/connected?   (constantly false)]
         (nexus/-with-nested-nexus {:scheduler sch :fs (fs/mem-fs)}
           (sut/register-comm! di)
@@ -70,7 +76,7 @@
                        {:callback-driven? true
                         :close!           (fn [] nil)
                         :send!            (fn [_payload] nil)})]
-      (with-redefs [server-app/running? (constantly true)]
+      (with-redefs [runner/running? (constantly true)]
         (nexus/-with-nested-nexus {:scheduler sch :fs (fs/mem-fs)}
           (let [di1 (discord/integration {:root "/tmp/discord-prior"
                                           :connect-ws! connect!})

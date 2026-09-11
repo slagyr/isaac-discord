@@ -1,6 +1,6 @@
-Feature: Discord service vs comm slot lifecycle
-  The comm slot registers config with the discord Service on load; only
-  server boot starts the Service and opens the gateway client.
+Feature: Discord component vs comm slot lifecycle
+  The comm slot registers config with the Discord component on load; only
+  server boot starts the component and opens the gateway client.
 
   Background:
     Given default Grover setup
@@ -21,7 +21,7 @@ Feature: Discord service vs comm slot lifecycle
     And the log has no entries matching:
       | event                   |
       | :discord.client/started |
-      | :service/started        |
+      | :component/started      |
 
   Scenario: server start opens the discord client
     Given config:
@@ -32,8 +32,8 @@ Feature: Discord service vs comm slot lifecycle
     When the config is reloaded
     When the discord Isaac server boots
     Then the log has entries matching:
-      | level | event            | service |
-      | :info | :service/started | discord |
+      | level | event              | component |
+      | :info | :component/started | discord   |
     And the Discord client is connected
     When the Isaac server is stopped
     Then the Discord client is disconnected
