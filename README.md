@@ -112,7 +112,7 @@ bb ci         # Run both
 
 Depends on [isaac-foundation](https://github.com/slagyr/isaac-foundation) and
 [isaac-agent](https://github.com/slagyr/isaac-agent). Use the `:dev-local` alias
-for sibling checkouts (`../isaac-foundation`, `../isaac-agent`, `../isaac-server`
+for sibling checkouts (`../isaac-foundation`, `../isaac-agent`, `../isaac-http`
 for features). Bump `:git/sha` in `deps.edn` when CI needs newer split-module
 code.
 

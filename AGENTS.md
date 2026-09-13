@@ -34,7 +34,7 @@ It registers as an Isaac module via `src/isaac-manifest.edn` and provides a
 **Isaac dependency:** `deps.edn` pins `isaac-foundation` and `isaac-agent` via
 git deps; `:dev-local` overrides to sibling `../isaac-foundation` and
 `../isaac-agent` checkouts. Feature and server-app specs also pull
-`isaac-server` (git-pinned; `:dev-local` → `../isaac-server`). Bump the
+`isaac-http` (git-pinned; `:dev-local` → `../isaac-http`). Bump the
 `:git/sha` values when CI / fresh clones need newer split-module code.
 
 ## Testing

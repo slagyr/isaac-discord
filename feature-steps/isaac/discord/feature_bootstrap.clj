@@ -7,7 +7,7 @@
 ;; Foundation logger defaults to a real log file; feature harnesses use mem-fs.
 (log/set-output! :memory)
 
-(def ^:private server-ns 'isaac.server.server-steps)
+(def ^:private server-ns 'isaac.http.server-steps)
 (def ^:private session-ns 'isaac.session.session-steps)
 
 (defn- without-templates [entries templates]

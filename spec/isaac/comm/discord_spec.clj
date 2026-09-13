@@ -82,7 +82,7 @@
 
   (it "declares namespaced :send-schema on the manifest"
     (let [manifest (edn/read-string (slurp (io/resource "isaac-manifest.edn")))
-          schema   (get-in manifest [:isaac.server/comm :discord :send-schema])]
+          schema   (get-in manifest [:isaac.http/comm :discord :send-schema])]
       (should= #{:discord/target} (set (keys schema)))))
 
   (it "send! reads :discord/target from the delivery record"
