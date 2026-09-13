@@ -83,8 +83,10 @@
   jvm-spec {:doc  "Run ALL speclj specs via clojure -M (JVM; honors dev-local switch)"
             :requires ([bb.test-tasks :as tests])
             :task (let [dev-local? (and (not (System/getenv "ISAAC_GIT"))
-                                        (babashka.fs/exists?
-                                          "../isaac-agent/src/isaac/session/frequencies.clj"))
+                                        (every? babashka.fs/exists?
+                                                ["../isaac-agent/src/isaac/session/frequencies.clj"
+                                                 "../isaac-foundation/src"
+                                                 "../isaac-http/src"]))
                         alias      (if dev-local? ":dev-local:spec" ":spec")]
                     (binding [tests/*jvm-spec-cmd* ["clojure" (str "-M" alias)]]
                       (apply tests/run-jvm-spec! *command-line-args*)))}
@@ -100,13 +102,21 @@
             :task (apply shell "bb" "jvm-features" *command-line-args*)}
 
   jvm-features {:doc  "Run gherclj via clojure -M (JVM; honors dev-local switch)"
-                :requires ([bb.test-tasks :as tests])
-                :task (let [dev-local? (and (not (System/getenv "ISAAC_GIT"))
-                                            (babashka.fs/exists?
-                                              "../isaac-agent/src/isaac/session/frequencies.clj"))
-                            alias      (if dev-local? ":dev-local:features" ":features")]
-                        (binding [tests/*jvm-features-cmd* ["clojure" (str "-M" alias)]]
-                          (apply tests/run-jvm-features! *command-line-args*)))}
+                :requires ([babashka.process :as process])
+                :task (let [dev-local?   (and (not (System/getenv "ISAAC_GIT"))
+                                              (every? babashka.fs/exists?
+                                                      ["../isaac-agent/src/isaac/session/frequencies.clj"
+                                                       "../isaac-foundation/src"
+                                                       "../isaac-http/src"]))
+                            alias        (if dev-local? ":dev-local:features" ":features")
+                            cmd          (into ["clojure" (str "-M" alias)] *command-line-args*)
+                            timeout-token (keyword "timeout")
+                            result       (deref (future (apply process/shell cmd)) 180000 timeout-token)]
+                        (when (= result timeout-token)
+                          (println "jvm-features timed out after 180s")
+                          (System/exit 124))
+                        (when (pos? (:exit result))
+                          (System/exit (:exit result))))}
 
   ;; Full gate: native subset + full JVM suite (specs + features). Parity with
   ;; pre-xapx `bb ci` (which was 100% JVM) plus a fast native smoke.
