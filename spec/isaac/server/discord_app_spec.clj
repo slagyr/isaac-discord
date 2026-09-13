@@ -1,4 +1,4 @@
-(ns isaac.server.discord-app-spec
+(ns isaac.http.discord-app-spec
   (:require
     [clojure.edn :as edn]
     [clojure.java.io :as io]
@@ -11,7 +11,7 @@
     [isaac.fs :as fs]
     [isaac.module.loader :as module-loader]
     [isaac.nexus :as nexus]
-    [isaac.server.app :as sut]
+    [isaac.http.app :as sut]
     [isaac.spec-helper :as helper]
     [speclj.core :refer :all]))
 

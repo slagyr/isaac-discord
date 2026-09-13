@@ -20,7 +20,7 @@
     [isaac.llm.api.grover :as grover]
     [isaac.logger :as log]
     [isaac.nexus :as nexus]
-    [isaac.server.app :as server-app]
+    [isaac.http.app :as server-app]
     [isaac.component.registry :as component-registry]
     [isaac.spec-helper :as helper]
     [isaac.llm.providers-steps :as providers-steps]
