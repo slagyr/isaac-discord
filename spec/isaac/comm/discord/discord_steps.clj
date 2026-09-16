@@ -577,6 +577,9 @@
 (defn- heartbeat-payload-count []
   (count (filter #(= 1 (:op %)) @(g/get :discord-sent))))
 
+(defn discord-sends-heartbeat-ack []
+  ((:on-message @(g/get :discord-callbacks)) (json/generate-string {:op 11})))
+
 (defn discord-sends-opcode-7 []
   ;; snapshot the auth count so the reconnect assertion measures only auths sent
   ;; from here on (the initial IDENTIFY is already in :discord-sent)
@@ -790,6 +793,9 @@
 (defthen "the Discord client sends RESUME:" isaac.comm.discord.discord-steps/discord-sends-resume)
 
 (defthen "the Discord client sends HEARTBEAT" isaac.comm.discord.discord-steps/discord-sends-heartbeat)
+
+(defwhen "Discord sends HEARTBEAT_ACK" isaac.comm.discord.discord-steps/discord-sends-heartbeat-ack
+  "Synthesizes an inbound opcode 11 (Heartbeat ACK) frame via the on-message callback.")
 
 (defwhen "Discord sends opcode 7" isaac.comm.discord.discord-steps/discord-sends-opcode-7
   "Synthesizes an inbound opcode 7 (Reconnect) frame via the on-message

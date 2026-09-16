@@ -545,6 +545,31 @@
       (test-clock/advance! clock 45000)
       (should (contains? (log-events) :discord.gateway/liveness))))
 
+  (it "liveness after an acked heartbeat includes rtt-ms and sequence without send/ack events"
+    (let [sent       (atom [])
+          callbacks* (atom nil)
+          clock      (test-clock/make)
+          _client    (sut/connect! {:token       "test-token"
+                                    :scheduler   (:scheduler clock)
+                                    :connect-ws! (fake-connect! sent callbacks*)})]
+      ((:on-message @callbacks*) (json/generate-string {:op 10 :d {:heartbeat_interval 45000}}))
+      ((:on-message @callbacks*) (json/generate-string {:op 0 :t "READY" :s 7 :d {:session_id "lively-lark" :user {:id "bot"}}}))
+      (test-clock/advance! clock 45000)
+      (test-clock/advance! clock 80)
+      ((:on-message @callbacks*) (json/generate-string {:op 11}))
+      (log/clear-entries!)
+      (test-clock/advance! clock 44920)
+      (let [liveness (->> (log/get-entries)
+                          (filter #(= :discord.gateway/liveness (:event %)))
+                          last)]
+        (should= :info (:level liveness))
+        (should= :ready (:status liveness))
+        (should= 7 (:sequence liveness))
+        (should= 80 (:rtt-ms liveness))
+        (should= 44920 (:last-ack-ms-ago liveness)))
+      (should-not (contains? (log-events) :discord.gateway/heartbeat))
+      (should-not (contains? (log-events) :discord.gateway/heartbeat-ack))))
+
   (it "logs fatal close codes without reconnecting"
     (let [sent*      (atom [])
           callbacks* (atom [])

@@ -24,8 +24,13 @@
        (map str)
        set))
 
-(defn- now-ms []
-  (System/currentTimeMillis))
+(defn- client-scheduler [client]
+  (or (:scheduler client) (nexus/get :scheduler)))
+
+(defn- now-ms [client]
+  (if-let [clock (:clock (client-scheduler client))]
+    (.toEpochMilli ^java.time.Instant (clock))
+    (System/currentTimeMillis)))
 
 (defn- default-connect-ws! [url _handlers]
   (ws/connect! url))
@@ -103,20 +108,30 @@
                                      (reconnect-mode-for-close (close-status (:disconnect state)))
                                      :identify)))))
 
+(defn- heartbeat-rtt-ms [state]
+  (let [sent-at (:last-heartbeat-sent-at-ms state)
+        ack-at  (:last-heartbeat-ack-at-ms state)]
+    (when (and sent-at ack-at (>= ack-at sent-at))
+      (- ack-at sent-at))))
+
 (defn- log-liveness! [client]
   (let [state      @(:state client)
         interval   (:heartbeat-interval-ms state)
         ack-at     (:last-heartbeat-ack-at-ms state)
-        now        (now-ms)
-        ack-age-ms (when ack-at (- now ack-at))]
+        now        (now-ms client)
+        ack-age-ms (when ack-at (- now ack-at))
+        rtt-ms     (heartbeat-rtt-ms state)
+        sequence   (:last-heartbeat-acked-sequence state)]
     (ensure-recovery! client)
     (if (and ack-age-ms interval (> ack-age-ms (* 2 interval)))
       (log/warn :discord.gateway/liveness-stale
                 :last-ack-ms-ago ack-age-ms
                 :heartbeat-interval-ms interval)
       (log/info :discord.gateway/liveness
-                :last-ack-ms-ago (or ack-age-ms "never")
-                :status (:status state)))))
+                (cond-> {:last-ack-ms-ago (or ack-age-ms "never")
+                         :status          (:status state)}
+                  sequence (assoc :sequence sequence)
+                  (some? rtt-ms) (assoc :rtt-ms rtt-ms))))))
 
 (defn- send-heartbeat! [client]
   (when (heartbeat-ack-missing? @(:state client))
@@ -130,8 +145,8 @@
       (transport-send! (:transport @(:state client)) payload)
       (swap! (:state client) assoc
              :last-heartbeat-sent-sequence seq
-             :heartbeat-ack-pending? true)
-      (log/debug :discord.gateway/heartbeat :sequence (:d payload)))))
+             :last-heartbeat-sent-at-ms (now-ms client)
+             :heartbeat-ack-pending? true))))
 
 (defn- cancel-heartbeat! [client & [{:keys [reason]}]]
   (when (:heartbeat-task-id @(:state client))
@@ -166,6 +181,7 @@
            :status :hello-received
            :heartbeat-interval-ms interval-ms
            :last-heartbeat-sent-sequence nil
+           :last-heartbeat-sent-at-ms nil
            :last-heartbeat-acked-sequence nil
            :last-heartbeat-ack-at-ms nil
            :heartbeat-ack-pending? false)
@@ -250,14 +266,12 @@
     (swap! (:state client) assoc :sequence sequence))
   (case (:op message)
     10 (handle-hello! client (:d message))
-    11 (do
-         (swap! (:state client)
-                (fn [s]
-                  (-> s
-                      (assoc :last-heartbeat-acked-sequence (:last-heartbeat-sent-sequence s)
-                             :last-heartbeat-ack-at-ms (now-ms)
-                             :heartbeat-ack-pending? false))))
-         (log/debug :discord.gateway/heartbeat-ack))
+    11 (swap! (:state client)
+              (fn [s]
+                (-> s
+                    (assoc :last-heartbeat-acked-sequence (:last-heartbeat-sent-sequence s)
+                           :last-heartbeat-ack-at-ms (now-ms client)
+                           :heartbeat-ack-pending? false))))
     7  (handle-reconnect-op! client)
     9  (handle-invalid-session-op! client (:d message))
     0  (handle-dispatch! client message)

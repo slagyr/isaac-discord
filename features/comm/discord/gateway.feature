@@ -9,6 +9,7 @@ Feature: Discord Gateway connection
     And the Discord Gateway is faked in-memory
     And config:
       | comms.discord.discord/token | test-token |
+      | log.output                  | memory     |
 
   Scenario: client sends IDENTIFY after receiving HELLO
     When the Discord client connects
@@ -50,3 +51,21 @@ Feature: Discord Gateway connection
     Then the Discord client sends exactly one RESUME or IDENTIFY on reconnect
     And the Discord client continues sending HEARTBEATs
     And no "Already authenticated" reconnect failure is logged
+
+  Scenario: liveness after an acked heartbeat is one log with rtt-ms
+    When the Discord client connects
+    And Discord sends HELLO:
+      | heartbeat_interval | 45000 |
+    And Discord sends READY:
+      | session_id | lively-lark |
+    And the test clock advances 45000 milliseconds
+    And the test clock advances 80 milliseconds
+    And Discord sends HEARTBEAT_ACK
+    And the test clock advances 44920 milliseconds
+    Then the log has entries matching:
+      | level | event                     | status | sequence | rtt-ms | last-ack-ms-ago |
+      | :info | :discord.gateway/liveness | :ready | 1        | 80     | 44920           |
+    And the log has no entries matching:
+      | event                            |
+      | :discord.gateway/heartbeat       |
+      | :discord.gateway/heartbeat-ack   |
