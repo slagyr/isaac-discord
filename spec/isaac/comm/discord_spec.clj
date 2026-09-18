@@ -253,14 +253,14 @@
           integration (sut/->DiscordIntegration test-dir nil (atom {:discord/token "test-token"}) (atom nil))]
       (with-redefs [rest/post-message! #(reset! captured %)]
         (comm/on-reply integration "discord-C999" "hi back")
-        (should= {:channel-id "C999" :content "hi back" :message-cap nil :token "test-token"} @captured))))
+        (should= {:channel-id "C999" :content "hi back" :message-cap nil :max-chunks nil :token "test-token"} @captured))))
 
   (it "posts an errored turn from on-turn-end"
     (let [captured    (atom nil)
           integration (sut/->DiscordIntegration test-dir nil (atom {:discord/token "test-token"}) (atom nil))]
       (with-redefs [rest/post-message! #(reset! captured %)]
         (comm/on-turn-end integration "discord-C999" {:error :llm-error :message "provider boom"})
-        (should= {:channel-id "C999" :content "provider boom" :message-cap nil :token "test-token"} @captured))))
+        (should= {:channel-id "C999" :content "provider boom" :message-cap nil :max-chunks nil :token "test-token"} @captured))))
 
   (it "does not post a successful turn end after on-reply already rendered the reply"
     (let [posted?      (atom false)
@@ -597,6 +597,7 @@
         (should= {:channel-id "1491164414794272848"
                   :content    "hi back"
                   :message-cap 2000
+                  :max-chunks  nil
                   :token       "test-token"}
                  @captured))))
 
