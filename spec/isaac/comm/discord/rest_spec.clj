@@ -31,7 +31,7 @@
       (should= {:event :discord.reply/http-error :channelId "C999" :status 403}
                (some #(when (= :discord.reply/http-error (:event %))
                         (select-keys % [:event :channelId :status]))
-                     (log/get-entries))))))
+                     (log/get-entries)))))
 
   (it "enqueues transient failures for delivery retry"
     (let [captured (atom nil)]
@@ -57,6 +57,7 @@
         (sut/post-message! {:channel-id   "C999"
                             :content      "alpha bravo\ncharlie delta\necho"
                             :message-cap  13
+                            :max-chunks   10
                             :token        "test-token"})
         (should= [{:content "alpha bravo"}
                   {:content "charlie delta"}
@@ -71,10 +72,33 @@
         (sut/post-message! {:channel-id   "C999"
                             :content      "abcdefghij"
                             :message-cap  5
+                            :max-chunks   10
                             :token        "test-token"})
         (should= [{:content "abcde"}
                   {:content "fghij"}]
                  @captured))))
+
+  (it "posts at most two chunks of a huge payload"
+    (let [captured (atom [])]
+      (with-redefs [http/post (fn [_ opts]
+                                (swap! captured conj (json/parse-string (:body opts) true))
+                                {:status 200 :body (json/generate-string {:id "msg-1"})})]
+        (sut/post-message! {:channel-id  "C999"
+                            :content     (apply str (repeat 10000 "x"))
+                            :message-cap 100
+                            :token       "test-token"})
+        (should= 2 (count @captured)))))
+
+  (it "stops posting further chunks after a 429"
+    (let [n (atom 0)]
+      (with-redefs [http/post (fn [_ _]
+                                (swap! n inc)
+                                {:status 429 :body "{\"retry_after\": 0.3}"})]
+        (sut/post-message! {:channel-id  "C999"
+                            :content     (apply str (repeat 5000 "x"))
+                            :message-cap 100
+                            :token       "test-token"})
+        (should= 1 @n))))
 
   (it "posts a typing indicator with Bot authorization"
     (let [captured (atom nil)]
@@ -83,4 +107,4 @@
                                 {:status 204 :body ""})]
         (sut/post-typing! {:channel-id "C999" :token "test-token"})
         (should= (str sut/api-base "/channels/C999/typing") (:url @captured))
-        (should= "Bot test-token" (get-in @captured [:opts :headers "Authorization"])))))
+        (should= "Bot test-token" (get-in @captured [:opts :headers "Authorization"]))))))

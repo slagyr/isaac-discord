@@ -9,6 +9,7 @@
 (def api-base "https://discord.com/api/v10")
 
 (def default-message-cap 2000)
+(def default-max-chunks 2)
 
 (defn- split-at-cap [s cap]
   (mapv #(subs s % (min (count s) (+ % cap)))
@@ -65,21 +66,36 @@
              {:headers {"Authorization" (str "Bot " token)}
               :throw   false}))
 
+(defn- clip-content [content cap]
+  (let [s (str content)
+        n (count s)]
+    (if (<= n cap)
+      s
+      (str (subs s 0 cap) "… truncated " (- n cap) " bytes"))))
+
 (defn post-message!
-  [{:keys [channel-id content message-cap token]}]
-  (let [cap       (or message-cap default-message-cap)
-        messages  (split-content content cap)]
-    (reduce (fn [_ message]
-              (post-single-message! {:channel-id channel-id :content message :token token}))
+  [{:keys [channel-id content message-cap max-chunks token]}]
+  (let [cap      (or message-cap default-message-cap)
+        chunks   (or max-chunks default-max-chunks)
+        bounded  (clip-content content (* cap chunks))
+        messages (take chunks (split-content bounded cap))]
+    (reduce (fn [prev message]
+              (if (transient-response? prev)
+                prev
+                (post-single-message! {:channel-id channel-id :content message :token token})))
             nil
             messages)))
 
 (defn try-send-or-enqueue!
-  [{:keys [channel-id content state-dir target token message-cap] :as _opts}]
+  [{:keys [channel-id content state-dir target token message-cap max-chunks] :as _opts}]
   (let [channel-id (or channel-id target)
+        cap        (or message-cap default-message-cap)
+        chunks     (or max-chunks default-max-chunks)
+        content    (clip-content content (* cap chunks))
         send-opts  {:channel-id  channel-id
                     :content     content
                     :message-cap message-cap
+                    :max-chunks  max-chunks
                     :token       token}]
     (try
       (let [response (post-message! send-opts)]
