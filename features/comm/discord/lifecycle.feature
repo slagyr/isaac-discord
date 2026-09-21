@@ -10,7 +10,7 @@ Feature: Discord client lifecycle
     And config:
       | key               | value  |
       | log.output        | memory |
-      | server.port       | 0      |
+      | http.port       | 0      |
     And the Discord Gateway is faked in-memory
 
   Scenario: Discord client starts on isaac server startup when config is present

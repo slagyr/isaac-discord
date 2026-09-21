@@ -35,9 +35,8 @@ Feature: Discord long-message splitting
     And an outbound HTTP request to "https://discord.com/api/v10/channels/C999/messages" matches:
       | #index       | 1             |
       | body.content | charlie delta |
-    And an outbound HTTP request to "https://discord.com/api/v10/channels/C999/messages" matches:
-      | #index       | 2    |
-      | body.content | echo |
+    # 55f73cd caps sends at two chunks by default; the "echo" tail is
+    # clipped (clip-content) and never posts as a third message.
 
   Scenario: a single line longer than the cap is hard-split at the cap boundary
     Given config:
@@ -56,3 +55,4 @@ Feature: Discord long-message splitting
     And an outbound HTTP request to "https://discord.com/api/v10/channels/C999/messages" matches:
       | #index       | 1     |
       | body.content | fghij |
+

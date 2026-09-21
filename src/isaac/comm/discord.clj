@@ -272,6 +272,7 @@
 
 (defn- result-content [result]
   (let [text (or (:content result)
+                 (get-in result [:response :content])
                  (get-in result [:response :message :content])
                  "")]
     (if (= render/preformatted (:format result))

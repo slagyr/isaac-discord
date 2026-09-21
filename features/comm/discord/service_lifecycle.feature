@@ -7,7 +7,7 @@ Feature: Discord component vs comm slot lifecycle
     And the discord module is registered
     And config:
       | key         | value |
-      | server.port | 0     |
+      | http.port | 0     |
     And the Discord Gateway is faked in-memory
 
   Scenario: discord config loads without starting the client

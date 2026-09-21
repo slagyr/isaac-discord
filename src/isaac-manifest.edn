@@ -5,12 +5,12 @@
  :isaac/component
  {:discord {:namespace isaac.comm.discord.service}}
 
- ;; Comm contributions live on the :isaac.http/comm berth — the berth the
- ;; server's [:comms] config slot composes :extra-schema from (see
- ;; isaac-http isaac-manifest.edn :comms :dynamic-schema). Declaring under
- ;; :isaac.agent/comm activates the comm (the factory falls back to it) but
- ;; leaves its fields out of the composed schema, so conform strips :discord/token.
- :isaac.http/comm
+ ;; Comm contributions live on the :isaac.agent/comm berth — declared by
+ ;; isaac-agent, which owns the Comm protocol every comm implements
+ ;; (isaac-deds). The server's [:comms] config slot composes :extra-schema
+ ;; from that berth (see isaac-http isaac-manifest.edn :comms
+ ;; :dynamic-schema).
+ :isaac.agent/comm
  {:discord {:namespace    isaac.comm.discord
             :extra-schema {:discord/token       {:type        :string
                                                  :validations [[:present-when? :type :discord]]
