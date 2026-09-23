@@ -141,8 +141,7 @@
   (or (:with-crew channel-cfg)
       (:crew channel-cfg)
       (:crew discord-cfg)
-      (get-in cfg [:defaults :crew])
-      "main"))
+      (get-in cfg [:defaults :crew])))
 
 (defn- channel-model-ref [discord-cfg channel-cfg]
   (or (:with-model channel-cfg)
