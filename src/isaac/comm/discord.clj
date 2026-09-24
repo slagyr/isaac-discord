@@ -9,6 +9,7 @@
     [isaac.comm.render :as render]
     [isaac.comm.discord.gateway :as gateway]
     [isaac.comm.discord.rest :as rest]
+    [isaac.config.defaults :as defaults]
     [isaac.config.loader :as loader]
     [isaac.config.root :as root]
     [isaac.fs :as fs]
@@ -141,7 +142,12 @@
   (or (:with-crew channel-cfg)
       (:crew channel-cfg)
       (:crew discord-cfg)
-      (get-in cfg [:defaults :crew])))
+      ;; isaac-ruom retired the flat [:defaults :crew]: the default crew id is
+      ;; a session-selection field at [:defaults :frequencies :crew] now, and
+      ;; isaac.config.defaults is the one place that knows that. No "main"
+      ;; literal after it — isaac-zule removed that deliberately, so a channel
+      ;; naming no crew and a config declaring no default resolve to nil.
+      (defaults/crew-id cfg)))
 
 (defn- channel-model-ref [discord-cfg channel-cfg]
   (or (:with-model channel-cfg)

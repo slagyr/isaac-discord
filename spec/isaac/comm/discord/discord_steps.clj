@@ -371,7 +371,14 @@
                                (edn/read-string (fs/slurp fs* isaac-path))
                                {})]
               (fs/spit fs* isaac-path
-                       (pr-str (merge {:defaults {:crew "main" :model "grover"}}
+                       (pr-str (merge {;; isaac-ruom: :defaults is entity templates. The
+                                       ;; default crew id moved to
+                                       ;; :defaults :frequencies :crew and the default
+                                       ;; model alias to :defaults :crew :model; the flat
+                                       ;; keys now fail validation and would sink the
+                                       ;; whole config.
+                                       :defaults {:frequencies {:crew "main"}
+                                                  :crew        {:model "grover"}}}
                                       current)))
               (fs/spit fs* (str cfg-root "/models/grover.edn")
                        (pr-str {:model "echo" :provider :grover :context-window 32768}))

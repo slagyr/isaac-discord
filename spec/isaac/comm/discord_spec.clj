@@ -329,7 +329,8 @@
     (let [captured (atom nil)
           cfg      {:comms     {:discord {:crew  "marvin"
                                           :model "bender"}}
-                    :defaults  {:crew "main" :model "grover"}
+                    :defaults  {:frequencies {:crew "main"}
+                                :crew        {:model "grover"}}
                     :crew      {"main"   {:model "grover" :soul "You are Isaac."}
                                 "marvin" {:model "grover" :soul "Bite my shiny metal prompts."}}
                     :models    {"grover" {:model "echo" :provider "grover" :context-window 32768}
@@ -345,12 +346,33 @@
       (should= "marvin" (get-in @captured [:opts :crew]))
       (should= "bender" (get-in @captured [:opts :model-ref]))))
 
+  (it "falls back to the default crew at [:defaults :frequencies :crew] when nothing names one"
+    (let [captured (atom nil)
+          cfg      {:comms     {:discord {}}
+                    ;; isaac-ruom: the default crew id is session selection,
+                    ;; not a crew template field — it lives under :frequencies.
+                    :defaults  {:frequencies {:crew "marvin"}
+                                :crew        {:model "grover"}}
+                    :crew      {"main"   {:model "grover" :soul "You are Isaac."}
+                                "marvin" {:model "grover" :soul "Bite my shiny metal prompts."}}
+                    :models    {"grover" {:model "echo" :provider "grover" :context-window 32768}}
+                    :providers {"grover" {:api "grover"}}}]
+      (with-redefs [loader/load-config-result (stub-config-result cfg)
+                    api/dispatch!     (fn [input]
+                                        (reset! captured {:input (:input input) :opts input})
+                                        {:stopReason "end_turn"})]
+        (sut/process-message! test-dir {:channel_id "C999"
+                                        :author     {:id "123"}
+                                        :content    "hello"}))
+      (should= "marvin" (get-in @captured [:opts :crew]))))
+
   (it "uses the per-channel model-ref over the Discord-wide model-ref"
     (let [captured (atom nil)
           cfg      {:comms     {:discord {:crew              "marvin"
                                           :model             "bender"
                                           :discord/channels  {"C999" {:with-model "chef-bender"}}}}
-                    :defaults  {:crew "main" :model "grover"}
+                    :defaults  {:frequencies {:crew "main"}
+                                :crew        {:model "grover"}}
                     :crew      {"main"   {:model "grover" :soul "You are Isaac."}
                                 "marvin" {:model "grover" :soul "Bite my shiny metal prompts."}}
                     :models    {"grover"      {:model "echo" :provider "grover" :context-window 32768}

@@ -30,7 +30,14 @@
     (sut/start! (assoc opts :module-index (:module-index config)))))
 
 (defn- config-edn [body]
-  (pr-str (merge {:modules (discord-modules)} body)))
+  ;; A real host always has a default crew: foundation has required one since
+  ;; isaac-bfwn, and isaac-ruom moved it to [:defaults :frequencies :crew].
+  ;; Without it the whole config fails validation, http.app/start! short-circuits
+  ;; to log-config-errors! and never wires the Discord comm these scenarios are about.
+  (pr-str (merge {:modules  (discord-modules)
+                  :defaults {:frequencies {:crew "main"}}
+                  :crew     {"main" {}}}
+                 body)))
 
 (describe "Server app — Discord integration"
 
