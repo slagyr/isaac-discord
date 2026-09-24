@@ -46,7 +46,7 @@
   (it "prefers channel with-crew, then channel crew, then discord-wide crew, then defaults.crew"
     (should= "chan-crew" (#'sut/channel-crew-id {} {:crew "discord-crew"} {:crew "chan-crew" :with-crew "chan-crew"}))
     (should= "discord-crew" (#'sut/channel-crew-id {} {:crew "discord-crew"} {}))
-    (should= "yopp" (#'sut/channel-crew-id {:defaults {:crew "yopp"}} {} {})))
+    (should= "yopp" (#'sut/channel-crew-id {:defaults {:frequencies {:crew "yopp"}}} {} {})))
 
   (it "is nil when nothing names a crew - never a crew called main (isaac-zule)"
     (should-be-nil (#'sut/channel-crew-id {} {} {}))))
