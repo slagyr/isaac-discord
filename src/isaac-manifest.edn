@@ -1,5 +1,5 @@
 {:id      :isaac.comm.discord
- :version "0.1.16"
+ :version "0.1.17"
  :factory isaac.module.protocol/module
 
  :isaac/component
@@ -39,11 +39,8 @@
                                                                         :crew {:type        :string
                                                                                :validations [[:nil-or? [:crew-exists?]]]
                                                                                :description "Crew for session selection or creation. Overrides the slot-level :crew."}
-                                                                        :reach {:type        :keyword
-                                                                                :description "How many sessions to target (:one for Discord)"
-                                                                                :validations [[:one-of? :one :all]]}
                                                                         :prefer {:type        :keyword
-                                                                                 :description "Multi-match tiebreak when :reach is :one"
+                                                                                 :description "Multi-match tiebreak"
                                                                                  :validations [[:one-of? :recent :oldest]]}
                                                                         :create {:type        :keyword
                                                                                  :description "Create policy: :never, :if-missing, or :always (Discord default :if-missing)"

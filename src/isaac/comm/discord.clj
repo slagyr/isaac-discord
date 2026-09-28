@@ -123,7 +123,7 @@
               target-str)))))
 
 (def ^:private frequency-keys
-  #{:session :session-tags :crew :reach :prefer :create
+  #{:session :session-tags :crew :prefer :create
     :with-crew :with-model :with-effort :with-context-mode})
 
 (defn- explicit-session-id [channel-cfg]
@@ -159,21 +159,18 @@
       (seq (:session-tags ch))
       (merge {:session-tags (:session-tags ch)
               :create       :if-missing
-              :reach        :one
               :prefer       :recent}
              (when (:crew ch) {:crew (:crew ch)}))
 
       (explicit-session-id channel-cfg)
       {:session [(explicit-session-id channel-cfg)]
        :create  :if-missing
-       :reach   :one
        :prefer  :recent}
 
       :else
-      {:default-session-key (str "discord-" (str channel-id))
-       :create              :if-missing
-       :reach               :one
-       :prefer              :recent})))
+      {:session [(str "discord-" channel-id)]
+       :create  :if-missing
+       :prefer  :recent})))
 
 (defn- session->channel-id [discord-cfg session-name]
   (when session-name

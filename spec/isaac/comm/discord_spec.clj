@@ -41,6 +41,12 @@
      :send-payload!    (fn [payload]
                          (when sent* (swap! sent* conj payload)))}))
 
+(describe "discord channel schema"
+  (it "does not declare reach for channels"
+    (let [manifest (edn/read-string (slurp "src/isaac-manifest.edn"))]
+      (should-not (contains? (get-in manifest [:isaac.agent/comm :discord :extra-schema
+                                              :discord/channels :value-spec :schema]) :reach)))))
+
 (describe "channel-crew-id"
 
   (it "prefers channel with-crew, then channel crew, then discord-wide crew, then defaults.crew"
