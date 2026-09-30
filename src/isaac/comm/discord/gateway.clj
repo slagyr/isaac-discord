@@ -1,10 +1,10 @@
 (ns isaac.comm.discord.gateway
   (:require
     [cheshire.core :as json]
-    [isaac.logger :as log]
-    [isaac.nexus :as nexus]
-    [isaac.scheduler.runtime :as scheduler]
-    [isaac.util.ws-client :as ws]))
+    [isaac.agent.util.ws-client :as ws]
+    [isaac.foundation.logger :as log]
+    [isaac.foundation.nexus :as nexus]
+    [isaac.foundation.scheduler.runtime :as scheduler]))
 
 (def gateway-url "wss://gateway.discord.gg/?v=10&encoding=json")
 (def intents 37377)

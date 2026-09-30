@@ -3,8 +3,8 @@
     [babashka.http-client :as http]
     [cheshire.core :as json]
     [clojure.string :as str]
-    [isaac.comm.delivery.queue :as queue]
-    [isaac.logger :as log]))
+    [isaac.agent.comm.delivery.queue :as queue]
+    [isaac.foundation.logger :as log]))
 
 (def api-base "https://discord.com/api/v10")
 

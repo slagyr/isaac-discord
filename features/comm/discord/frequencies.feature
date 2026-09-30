@@ -1,7 +1,7 @@
 Feature: Discord session frequencies
   Each Discord channel's routing config is a session-frequencies map validated
   by the shared schema. Inbound MESSAGE_CREATE events resolve channel frequencies
-  through isaac.session.frequencies before dispatching the turn.
+  through isaac.agent.frequencies before dispatching the turn.
 
   Background:
     Given default Grover setup in "/test/discord-frequencies"

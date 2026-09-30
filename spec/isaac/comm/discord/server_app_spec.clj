@@ -1,18 +1,18 @@
-(ns isaac.http.discord-app-spec
+(ns isaac.comm.discord.server-app-spec
   (:require
     [clojure.edn :as edn]
     [clojure.java.io :as io]
+    [isaac.agent.comm.registry :as comm-registry]
     [isaac.comm.discord :as discord]
     [isaac.comm.discord.gateway :as discord-gateway]
-    [isaac.comm.registry :as comm-registry]
-    [isaac.component.registry :as component-registry]
-    [isaac.component.runtime :as component-runtime]
-    [isaac.config.change-source :as change-source]
-    [isaac.fs :as fs]
-    [isaac.module.loader :as module-loader]
-    [isaac.nexus :as nexus]
+    [isaac.foundation.component.registry :as component-registry]
+    [isaac.foundation.component.runtime :as component-runtime]
+    [isaac.foundation.config.change-source :as change-source]
+    [isaac.foundation.fs :as fs]
+    [isaac.foundation.module.loader :as module-loader]
+    [isaac.foundation.nexus :as nexus]
+    [isaac.foundation.spec-helper :as helper]
     [isaac.http.app :as sut]
-    [isaac.spec-helper :as helper]
     [speclj.core :refer :all]))
 
 (defn- discord-module-index []
