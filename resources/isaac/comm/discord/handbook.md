@@ -132,8 +132,8 @@ Everything dropped is logged at `debug` with a `:reason` of `:guild`,
 An accepted message routes to a session named `discord-<channel-id>` by
 default — one session per channel, shared by every author who posts
 there. `discord/channels.<channel-id>` overrides this per channel with the
-same session-selection shape `isaac.agent` documents under Sessions and
-transcripts (`session`, `session-tags`, `crew`, `prefer`, `create`), plus
+same frequencies shape `isaac.agent` documents (`isaac.agent#frequencies`:
+`session`, `session-tags`, `crew`, `prefer`, `create`), plus
 Discord-specific per-turn overrides (`with-crew`, `with-model`,
 `with-effort`, `with-context-mode`) that apply to that one inbound turn
 without changing the channel's standing session or crew. A channel's
