@@ -1,6 +1,7 @@
-{:id      :isaac.comm.discord
- :version "0.1.17"
- :factory isaac.module.protocol/module
+{:id       :isaac.comm.discord
+ :version  "0.1.17"
+ :factory  isaac.module.protocol/module
+ :handbook "isaac/comm/discord/handbook.md"
 
  :isaac/component
  {:discord {:namespace isaac.comm.discord.service}}
