@@ -1,23 +1,3 @@
-<!--
-Lint convention (isaac.comm.discord.handbook-chapter-spec, isaac-0xp9): a
-backtick `config:<dotted.path>` reference (no angle-bracket placeholder
-inside the path) is checked against the composed config schema, and the
-word right after `isaac ` in `isaac <command>` is checked against the
-registered top-level CLI commands. Mirrors isaac.foundation's own,
-adapted like isaac.google's and isaac.cron's to read raw manifests rather
-than isaac.module.berths' introspection helpers, which aren't available
-at every foundation pin a module may carry. Keep both literal and real
-when you edit this file — the lint fails the build once either drifts
-from what Isaac actually exposes. `<placeholder>` shapes (e.g.
-`config:<dotted.path>` itself, or an angle-bracket id) are intentionally
-skipped. isaac-discord's own config fields (`discord/token`,
-`discord/channels`, …) are deliberately written as plain inline code,
-never a backtick `config:` reference — they're contributed dynamically
-to the shared `comms` table via the `:isaac.agent/comm` berth and don't
-resolve through the composed schema the same way a builtin module's
-fields do.
--->
-
 # isaac.comm.discord — the Discord comm
 
 You are a crew running inside Isaac. This chapter covers **isaac-discord**:

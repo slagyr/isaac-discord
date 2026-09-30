@@ -1,12 +1,21 @@
 (ns isaac.comm.discord.handbook-chapter-spec
   "Lint for isaac-discord's own handbook chapter (isaac-0xp9): every backtick
-   `config:<path>` reference must resolve against the composed config schema,
-   and every `isaac <command>` invocation must name a registered top-level
-   CLI command. Mirrors isaac.foundation.handbook-chapter-spec, adapted like
+   `config:<dotted.path>` reference (no angle-bracket placeholder inside the
+   path) must resolve against the composed config schema, and the word right
+   after `isaac ` in every `isaac <command>` invocation must name a
+   registered top-level CLI command. Keep both literal and real when you
+   edit the chapter — this lint fails the build once either drifts from what
+   Isaac actually exposes. `<placeholder>` shapes (e.g. `config:<dotted.path>`
+   itself, or an angle-bracket id) are intentionally skipped. isaac-discord's
+   own config fields (`discord/token`, `discord/channels`, …) are
+   deliberately written in the chapter as plain inline code, never a
+   backtick `config:` reference — they're contributed dynamically to the
+   shared `comms` table via the `:isaac.agent/comm` berth and don't resolve
+   through the composed schema the same way a builtin module's fields do.
+   Mirrors isaac.foundation.handbook-chapter-spec, adapted like
    isaac.google's and isaac.cron's own to read raw manifests rather than
    isaac.module.berths' introspection helpers, which aren't available at
-   every foundation pin a module may carry. See the convention comment at
-   the top of the chapter file itself."
+   every foundation pin a module may carry."
   (:require
     [clojure.java.io :as io]
     [clojure.string :as str]
