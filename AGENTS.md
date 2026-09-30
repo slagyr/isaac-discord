@@ -58,8 +58,8 @@ and pull in the shared Isaac step namespaces via the git dep.
 
 Production code depends on:
 
-- **isaac-foundation** — `isaac.logger`, `isaac.nexus`, `isaac.scheduler.runtime`, `isaac.config.loader`
-- **isaac-agent** — `isaac.api`, `isaac.charge`, `isaac.comm.delivery.queue`, `isaac.util.ws-client`, `isaac.comm.factory`
+- **isaac-foundation** — `isaac.foundation.logger`, `isaac.foundation.nexus`, `isaac.foundation.scheduler.runtime`, `isaac.foundation.config.loader`
+- **isaac-agent** — `isaac.agent.api`, `isaac.agent.charge`, `isaac.agent.comm.delivery.queue`, `isaac.agent.util.ws-client`, `isaac.agent.comm.factory`
 
-Comm registration is via `defmethod isaac.comm.factory/create :discord` and the
+Comm registration is via `defmethod isaac.agent.comm.factory/create :discord` and the
 `:isaac.agent/comm` manifest contribution (not `register-comm!`).

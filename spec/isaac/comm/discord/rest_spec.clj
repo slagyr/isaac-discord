@@ -2,9 +2,9 @@
   (:require
     [babashka.http-client :as http]
     [cheshire.core :as json]
-    [isaac.comm.delivery.queue :as queue]
+    [isaac.agent.comm.delivery.queue :as queue]
     [isaac.comm.discord.rest :as sut]
-    [isaac.logger :as log]
+    [isaac.foundation.logger :as log]
     [speclj.core :refer :all]))
 
 (describe "Discord REST"

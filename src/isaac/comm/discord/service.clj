@@ -2,13 +2,13 @@
   (:require
     [isaac.comm.discord :as discord]
     [isaac.comm.discord.gateway :as gateway]
-    [isaac.component.factory :as component-factory]
-    [isaac.component.protocol :as component]
-    [isaac.component.registry :as component-registry]
-    [isaac.logger :as log]
-    [isaac.nexus :as nexus]
-    [isaac.runner :as runner]
-    [isaac.scheduler.runtime :as scheduler]))
+    [isaac.foundation.component.factory :as component-factory]
+    [isaac.foundation.component.protocol :as component]
+    [isaac.foundation.component.registry :as component-registry]
+    [isaac.foundation.logger :as log]
+    [isaac.foundation.nexus :as nexus]
+    [isaac.foundation.runner :as runner]
+    [isaac.foundation.scheduler.runtime :as scheduler]))
 
 (defonce ^:private component-running?* (atom false))
 (defonce ^:private watchdog-stale-since (atom {}))

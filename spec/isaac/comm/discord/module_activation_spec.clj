@@ -1,11 +1,11 @@
-(ns isaac.module-activation-spec
+(ns isaac.comm.discord.module-activation-spec
   "Compile and comm-factory activation smoke: a non-compiling discord module
    must fail CI before it can silently dead-letter comm_send in production."
   (:require
     [clojure.edn :as edn]
     [clojure.java.io :as io]
-    [isaac.comm.factory :as comm-factory]
-    [isaac.module.loader :as module-loader]
+    [isaac.agent.comm.factory :as comm-factory]
+    [isaac.foundation.module.loader :as module-loader]
     [speclj.core :refer :all]))
 
 (defn- discord-module-index []

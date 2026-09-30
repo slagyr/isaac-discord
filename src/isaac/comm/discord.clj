@@ -2,22 +2,22 @@
   (:require
     [cheshire.core :as json]
     [clojure.string :as str]
-    [isaac.api :as api]
-    [isaac.charge :as charge]
-    [isaac.comm.factory :as factory]
-    [isaac.comm.protocol :as comm]
-    [isaac.comm.render :as render]
+    [isaac.agent.api :as api]
+    [isaac.agent.charge :as charge]
+    [isaac.agent.comm.factory :as factory]
+    [isaac.agent.comm.protocol :as comm]
+    [isaac.agent.comm.render :as render]
+    [isaac.agent.config.defaults :as defaults]
+    [isaac.agent.frequencies :as frequencies]
+    [isaac.agent.session.store.spi :as session-store]
     [isaac.comm.discord.gateway :as gateway]
     [isaac.comm.discord.rest :as rest]
-    [isaac.config.defaults :as defaults]
-    [isaac.config.loader :as loader]
-    [isaac.config.root :as root]
-    [isaac.fs :as fs]
-    [isaac.logger :as log]
-    [isaac.nexus :as nexus]
-    [isaac.scheduler.runtime :as scheduler]
-    [isaac.session.frequencies :as frequencies]
-    [isaac.session.store.spi :as session-store]))
+    [isaac.foundation.config.loader :as loader]
+    [isaac.foundation.config.root :as root]
+    [isaac.foundation.fs :as fs]
+    [isaac.foundation.logger :as log]
+    [isaac.foundation.nexus :as nexus]
+    [isaac.foundation.scheduler.runtime :as scheduler]))
 
 (defn- ->id [value]
   (cond
@@ -144,7 +144,7 @@
       (:crew discord-cfg)
       ;; isaac-ruom retired the flat [:defaults :crew]: the default crew id is
       ;; a session-selection field at [:defaults :frequencies :crew] now, and
-      ;; isaac.config.defaults is the one place that knows that. No "main"
+      ;; isaac.agent.config.defaults is the one place that knows that. No "main"
       ;; literal after it — isaac-zule removed that deliberately, so a channel
       ;; naming no crew and a config declaring no default resolve to nil.
       (defaults/crew-id cfg)))
@@ -459,7 +459,7 @@
                              :token       (:discord/token dcfg)})))))
 
 (deftype DiscordIntegration [state-dir connect-ws! cfg conn]
-  ;; Reconfigurable stays INLINE on purpose: isaac.config.berths checks
+  ;; Reconfigurable stays INLINE on purpose: isaac.foundation.config.berths checks
   ;; `(satisfies? Reconfigurable node)` against a def-aliased protocol
   ;; snapshot taken before this module loads, so an `extend`-registered
   ;; implementation is invisible to it and on-load never fires (the gateway

@@ -1,11 +1,11 @@
 (ns isaac.comm.discord.gateway-spec
   (:require
     [cheshire.core :as json]
+    [isaac.agent.util.ws-client :as ws]
     [isaac.comm.discord.gateway :as sut]
     [isaac.comm.discord.test-clock :as test-clock]
-    [isaac.logger :as log]
-    [isaac.scheduler.runtime :as scheduler]
-    [isaac.util.ws-client :as ws]
+    [isaac.foundation.logger :as log]
+    [isaac.foundation.scheduler.runtime :as scheduler]
     [speclj.core :refer :all]))
 
 (defn- fake-connect! [sent callbacks*]

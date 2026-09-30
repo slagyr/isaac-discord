@@ -22,43 +22,43 @@
         io.github.slagyr/gherclj {:git/tag "v1.4.0" :git/sha "85245b1"}
         io.github.cleancoders/c3kit-wire {:git/tag "2.5.1" :git/sha "1fae444"}
         io.github.slagyr/isaac-foundation {:git/url "https://github.com/slagyr/isaac-foundation.git"
-                                           :git/sha "9ab25271aedb97c2e2e8abbc6a58955cdff8f274"}
+                                           :git/sha "06d58b75bc52b3e118dc8e81569096de2532a0d4"}
         io.github.slagyr/isaac-foundation-spec {:git/url "https://github.com/slagyr/isaac-foundation.git"
-                                                :git/sha "9ab25271aedb97c2e2e8abbc6a58955cdff8f274"
+                                                :git/sha "06d58b75bc52b3e118dc8e81569096de2532a0d4"
                                                 :deps/root "spec"}
         io.github.slagyr/isaac-foundation-test-support {:git/url "https://github.com/slagyr/isaac-foundation.git"
-                                                        :git/sha "9ab25271aedb97c2e2e8abbc6a58955cdff8f274"
+                                                        :git/sha "06d58b75bc52b3e118dc8e81569096de2532a0d4"
                                                         :deps/root "spec-support"}
         marigold.bridge/marigold.bridge {:git/url "https://github.com/slagyr/isaac-foundation.git"
-                                         :git/sha "9ab25271aedb97c2e2e8abbc6a58955cdff8f274"
+                                         :git/sha "06d58b75bc52b3e118dc8e81569096de2532a0d4"
                                          :deps/root "modules/marigold.bridge"}
         marigold.longwave/marigold.longwave {:git/url "https://github.com/slagyr/isaac-foundation.git"
-                                             :git/sha "9ab25271aedb97c2e2e8abbc6a58955cdff8f274"
+                                             :git/sha "06d58b75bc52b3e118dc8e81569096de2532a0d4"
                                              :deps/root "modules/marigold.longwave"}
         io.github.slagyr/isaac-agent {:git/url "https://github.com/slagyr/isaac-agent.git"
-                                      :git/sha "b1de8dc554ff9eefac90ea34e6e1902c642d2aaf"}
+                                      :git/sha "123d71850b480dc0859886e1a4fa53e082c258f1"}
         io.github.slagyr/isaac-agent-spec {:git/url "https://github.com/slagyr/isaac-agent.git"
-                                           :git/sha "b1de8dc554ff9eefac90ea34e6e1902c642d2aaf"
+                                           :git/sha "123d71850b480dc0859886e1a4fa53e082c258f1"
                                            :deps/root "spec"}
         io.github.slagyr/isaac-http {:git/url "https://github.com/slagyr/isaac-http.git"
-                                       :git/sha "689d36861e852112de7198fd6319afbe8a836705"}
+                                       :git/sha "56998543b3e5c40593d2a3ea97b16550e3731463"}
         io.github.slagyr/isaac-http-spec {:git/url "https://github.com/slagyr/isaac-http.git"
-                                            :git/sha "689d36861e852112de7198fd6319afbe8a836705"
+                                            :git/sha "56998543b3e5c40593d2a3ea97b16550e3731463"
                                             :deps/root "spec"}
         io.github.slagyr/isaac-http-test-support {:git/url "https://github.com/slagyr/isaac-http.git"
-                                                    :git/sha "689d36861e852112de7198fd6319afbe8a836705"
+                                                    :git/sha "56998543b3e5c40593d2a3ea97b16550e3731463"
                                                     :deps/root "spec-support"}}
 
  :tasks
- {config-bypass-lint {:doc "Fail on raw config slurp/read outside isaac.config.* (isaac-foundation-test-support)"
+ {config-bypass-lint {:doc "Fail on raw config slurp/read outside isaac.foundation.config.* (isaac-foundation-test-support)"
                       :requires ([isaac.foundation.config-bypass-lint :as lint])
                       :task (apply lint/lint! (or (seq *command-line-args*) ["src"]))}
 
   ;; Babashka-compatible unit specs (no clout/instaparse, no server.app).
   ;; JVM-only (clout/IHashEq or server HTTP surface):
-  ;;   - spec/isaac/module_activation_spec.clj
+  ;;   - spec/isaac/comm/discord/module_activation_spec.clj
   ;;   - spec/isaac/comm/discord/service_spec.clj
-  ;;   - spec/isaac/server/discord_app_spec.clj
+  ;;   - spec/isaac/comm/discord/server_app_spec.clj
   ;; JVM-only (scheduler delay-trigger schema under SCI):
   ;;   - spec/isaac/comm/discord/gateway_spec.clj
   ;; Native:
@@ -84,17 +84,17 @@
             :requires ([bb.test-tasks :as tests])
             :task (let [dev-local? (and (not (System/getenv "ISAAC_GIT"))
                                         (every? babashka.fs/exists?
-                                                ["../isaac-agent/src/isaac/session/frequencies.clj"
+                                                ["../isaac-agent/src/isaac/agent/frequencies.clj"
                                                  "../isaac-foundation/src"
                                                  "../isaac-http/src"]))
                         alias      (if dev-local? ":dev-local:spec" ":spec")]
                     (binding [tests/*jvm-spec-cmd* ["clojure" (str "-M" alias)]]
                       (apply tests/run-jvm-spec! *command-line-args*)))}
 
-  ;; Kept for callers that still invoke `bb spec-jvm` (discord_app_spec focus).
-  spec-jvm {:doc  "JVM-only: discord_app_spec via the same classpath as jvm-spec"
+  ;; Kept for callers that still invoke `bb spec-jvm` (server_app_spec focus).
+  spec-jvm {:doc  "JVM-only: server_app_spec via the same classpath as jvm-spec"
             :task (apply shell "bb" "jvm-spec"
-                         (into ["spec/isaac/server/discord_app_spec.clj"]
+                         (into ["spec/isaac/comm/discord/server_app_spec.clj"]
                                *command-line-args*))}
 
   features {:doc  "Feature specs load server.app → clout/instaparse (JVM-only under SCI).
@@ -105,7 +105,7 @@
                 :requires ([babashka.process :as process])
                 :task (let [dev-local?   (and (not (System/getenv "ISAAC_GIT"))
                                               (every? babashka.fs/exists?
-                                                      ["../isaac-agent/src/isaac/session/frequencies.clj"
+                                                      ["../isaac-agent/src/isaac/agent/frequencies.clj"
                                                        "../isaac-foundation/src"
                                                        "../isaac-http/src"]))
                             alias        (if dev-local? ":dev-local:features" ":features")
