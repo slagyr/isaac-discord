@@ -34,7 +34,7 @@ Feature: Discord channel is the session id for episode crews
       | content    | Light the lamp |
     Then an episode exists for crew "cordelia" matching:
       | key        | value                          |
-      | id         | #"\d{4}-\d{2}-\d{2}-\d{4}-\w+" |
+      | id         | #"\d{17}"                         |
       | status     | open                           |
       | session-id | discord-C999                   |
     And the following sessions match:
