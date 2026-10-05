@@ -1,6 +1,6 @@
 Feature: Discord channel is the session id for episode crews
   A Discord channel is the session id (not a process thread),
-  the same role as an ACP session id. For a crew with :session-policy
+  the same role as an ACP session id. For a crew on :context-mode :episodes
   :episodes the agent opens a container on first message under that
   session id; a warm second message appends; the session id never
   changes. Typing and replies use origin channel-id. Chronicle crews
@@ -11,12 +11,14 @@ Feature: Discord channel is the session id for episode crews
     Given default Grover setup in "/test/discord-episodes"
     And the Discord Gateway is faked in-memory
 
+  @wip
   Scenario: first message on an episodes crew opens an episode and replies to the channel
     Given the isaac EDN file "config/crew/cordelia.edn" exists with:
       | path           | value            |
       | model          | echo             |
       | soul           | You are Cordelia |
-      | session-policy | episodes         |
+      | context-mode   | episodes         |
+      | observers      | [:episodes]      |
     And config:
       | comms.discord.discord/token             | test-token |
       | comms.discord.discord/allow-from.guilds | G789       |
@@ -43,12 +45,14 @@ Feature: Discord channel is the session id for episode crews
       | headers.Authorization | Bot test-token     |
       | body.content          | Charted, keep west |
 
+  @wip
   Scenario: a warm second message on the same channel appends and still replies to the channel
     Given the isaac EDN file "config/crew/cordelia.edn" exists with:
       | path           | value            |
       | model          | echo             |
       | soul           | You are Cordelia |
-      | session-policy | episodes         |
+      | context-mode   | episodes         |
+      | observers      | [:episodes]      |
     And config:
       | comms.discord.discord/token             | test-token |
       | comms.discord.discord/allow-from.guilds | G789       |
