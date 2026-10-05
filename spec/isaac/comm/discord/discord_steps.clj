@@ -16,7 +16,11 @@
     [isaac.agent.session.spec-helper :as storage]
     [isaac.agent.session.store.impl-common :as session-impl]
     [isaac.agent.session.store.spi :as session-store]
+    [isaac.agent.step-tables :as match]
     [isaac.comm.discord :as discord]
+    [isaac.session.episodes.context]
+    [isaac.session.episodes.observer]
+    [isaac.session.episodes.store :as episode-store]
     [isaac.comm.discord.gateway :as gateway]
     [isaac.comm.discord.test-clock :as test-clock]
     [isaac.foundation.component.registry :as component-registry]
@@ -94,6 +98,33 @@
 (defn- with-feature-fs [f]
   (nexus/-with-nested-nexus {:fs (mem-fs)}
     (f)))
+
+(defn- await-parked-turn! []
+  (when-let [tf @turn-future*]
+    (when-not (realized? tf)
+      (deref tf 5000 nil))))
+
+(defn episode-exists-for-crew-matching [crew table]
+  (await-parked-turn!)
+  (with-feature-fs
+    (fn []
+      (let [eps (episode-store/list-episodes (mem-fs) (root-dir) crew)
+            ep  (or (some (fn [candidate]
+                            (when (empty? (:failures (match/match-object table candidate)))
+                              candidate))
+                          eps)
+                    (first eps))]
+        (g/should-not-be-nil ep)
+        (g/assoc! :current-episode (assoc ep :crew crew))
+        (g/should= [] (:failures (match/match-object table ep)))))))
+
+(defn crew-has-n-episodes [crew n-str]
+  (await-parked-turn!)
+  (with-feature-fs
+    (fn []
+      (let [n   (if (string? n-str) (parse-long n-str) n-str)
+            eps (episode-store/list-episodes (mem-fs) (root-dir) crew)]
+        (g/should= n (count eps))))))
 
 (defn- get-path [data path]
   (reduce (fn [current segment]
@@ -863,6 +894,14 @@
   isaac.comm.discord.discord-steps/discord-outbound-http-request-count-to-url
   "Count variant of the outbound HTTP matcher. Tolerates singular/plural
    'request(s)'. Counts recorded POSTs whose :url equals the given URL.")
+
+(defthen "an episode exists for crew {crew:string} matching:"
+  isaac.comm.discord.discord-steps/episode-exists-for-crew-matching
+  "Reads episode records for the crew and matches key/value rows.")
+
+(defthen #"crew \"([^\"]+)\" has (\d+) episodes?"
+  isaac.comm.discord.discord-steps/crew-has-n-episodes
+  "Counts episode records under episodes/<crew>/.")
 
 ;; endregion ^^^^^ Routing ^^^^^
 

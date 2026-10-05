@@ -320,7 +320,12 @@
 
   (it "always sets :session-key and never :conversation, even for an episodes crew"
     (let [captured (atom nil)
-          cfg      (assoc-in base-config [:crew "main" :session-policy] :episodes)]
+          cfg      (-> base-config
+                       (assoc-in [:comms :discord :crew] "cordelia")
+                       (assoc :crew {"cordelia" {:model        "grover"
+                                                 :soul         "You are Cordelia."
+                                                 :context-mode :episodes
+                                                 :observers    [:episodes]}}))]
       (with-redefs [loader/load-config-result (stub-config-result cfg)
                     api/dispatch!     (fn [request]
                                          (reset! captured request)

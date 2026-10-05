@@ -11,7 +11,6 @@ Feature: Discord channel is the session id for episode crews
     Given default Grover setup in "/test/discord-episodes"
     And the Discord Gateway is faked in-memory
 
-  @wip
   Scenario: first message on an episodes crew opens an episode and replies to the channel
     Given the isaac EDN file "config/crew/cordelia.edn" exists with:
       | path           | value            |
@@ -45,7 +44,6 @@ Feature: Discord channel is the session id for episode crews
       | headers.Authorization | Bot test-token     |
       | body.content          | Charted, keep west |
 
-  @wip
   Scenario: a warm second message on the same channel appends and still replies to the channel
     Given the isaac EDN file "config/crew/cordelia.edn" exists with:
       | path           | value            |
