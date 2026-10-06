@@ -9,6 +9,7 @@
 
 (def ^:private server-ns 'isaac.http.server-steps)
 (def ^:private session-ns 'isaac.agent.session.session-steps)
+(def ^:private delivery-ns 'isaac.agent.comm.delivery.worker-steps)
 
 (defn- without-templates [entries templates]
   (let [drop? (set templates)]
@@ -32,8 +33,10 @@
          (fn [m]
            (into {}
                  (map (fn [[ns-sym entries]]
-                        [ns-sym (if (= ns-sym session-ns)
-                                  (without-templates entries
-                                                     (session-drop-templates m))
-                                  entries)]))
+                        [ns-sym (cond
+                                  (= ns-sym session-ns)
+                                  (without-templates entries (session-drop-templates m))
+                                  (= ns-sym delivery-ns)
+                                  (without-templates entries ["the delivery worker ticks"])
+                                  :else entries)]))
                  m))))

@@ -109,7 +109,7 @@
                       rest/post-message!       (fn [opts]
                                                  (reset! captured opts)
                                                  {:status 200 :body "{}"})]
-          (should= {:ok true}
+          (should= {:ok true :channel "C999"}
                    (comm/send! integration {:content "hello" :discord/target "C999"}))
           (should= {:channel-id "C999" :content "hello" :message-cap nil :token "test-token"}
                    @captured)))))
@@ -126,7 +126,7 @@
                       rest/post-message!       (fn [opts]
                                                  (reset! captured opts)
                                                  {:status 200 :body "{}"})]
-          (should= {:ok true}
+          (should= {:ok true :channel "C999"}
                    (comm/send! integration {:content "hello" :discord/target "announcements"}))
           (should= {:channel-id "C999" :content "hello" :message-cap nil :token "test-token"}
                    @captured)))))
@@ -139,7 +139,7 @@
                       rest/post-message!       (fn [opts]
                                                  (reset! captured opts)
                                                  {:status 200 :body "{}"})]
-          (should= {:ok true}
+          (should= {:ok true :channel "C999"}
                    (comm/send! integration {:content "attention" :target "C999"}))
           (should= {:channel-id "C999" :content "attention" :message-cap nil :token "test-token"}
                    @captured)))))
@@ -156,7 +156,7 @@
                       rest/post-message!       (fn [opts]
                                                  (reset! captured opts)
                                                  {:status 200 :body "{}"})]
-          (should= {:ok true}
+          (should= {:ok true :channel "C999"}
                    (comm/send! integration {:content "ping" :target "isaac"}))
           (should= {:channel-id "C999" :content "ping" :message-cap nil :token "test-token"}
                    @captured)))))
@@ -231,7 +231,7 @@
                       rest/post-message!       (fn [opts]
                                                  (reset! captured opts)
                                                  {:status 200 :body "{}"})]
-          (should= {:ok true}
+          (should= {:ok true :channel "C999"}
                    (comm/send! integration {:content "Lantern trimmed." :target "C999"}))
           (should= {:channel-id "C999" :content "Lantern trimmed." :message-cap nil :token "test-token"}
                    @captured)))))
@@ -252,7 +252,7 @@
                       rest/post-message!       (fn [opts]
                                                  (reset! captured opts)
                                                  {:status 200 :body "{}"})]
-          (should= {:ok true}
+          (should= {:ok true :channel "C999"}
                    (comm/send! integration {:content "hello" :discord/target "C999"}))
           (should= {:channel-id "C999" :content "hello" :message-cap nil :token "resolved-live-token"}
                    @captured))))))
@@ -462,7 +462,7 @@
                                         :content    "hello"}))
       (should= "discord-C999" (:session-name @captured))
       (should= "hello" (:input @captured))
-      (should-not-be-nil (storage/get-session test-dir "discord-C999"))))
+      (should= #{"discord:C999"} (:channels (storage/get-session test-dir "discord-C999")))))
 
   (it "writes only crew when creating a Discord session"
     (with-redefs [loader/load-config-result (stub-config-result base-config)

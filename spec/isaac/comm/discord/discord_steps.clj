@@ -10,6 +10,7 @@
     [isaac.agent.comm.factory :as comm-factory]
     [isaac.agent.comm.protocol :as comm]
     [isaac.agent.comm.registry :as comm-registry]
+    [isaac.agent.comm.delivery.worker :as delivery-worker]
     [isaac.agent.llm.api.grover :as grover]
     [isaac.agent.llm.providers-steps :as providers-steps]
     [isaac.agent.session.session-steps :as session-steps]
@@ -722,6 +723,16 @@
         di          (discord/->DiscordIntegration (state-dir) nil (atom discord-cfg) (atom nil))]
     (g/assoc! :discord-integration di)))
 
+(defn discord-delivery-worker-ticks []
+  (await-parked-turn!)
+  (let [before (count @captured-http*)]
+    (with-feature-fs
+      #(nexus/-with-nested-nexus {:root (state-dir) :fs (mem-fs)}
+         (binding [comm-registry/*registry* (atom (assoc (comm-registry/fresh-registry)
+                                                        :instances {"discord" (active-integration)}))]
+           (delivery-worker/tick! {}))))
+    (g/assoc! :outbound-http-requests (subvec @captured-http* before))))
+
 (defn discord-outbound-http-request-to-url-matches [url table]
   (providers-steps/outbound-http-request-to-url-matches url table))
 
@@ -881,6 +892,9 @@
 (defthen "the Discord client accepted no messages" isaac.comm.discord.discord-steps/discord-client-accepted-no-messages)
 
 (defthen "the EDN file \"{path}\" matches:" isaac.comm.discord.discord-steps/edn-file-matches)
+
+(defwhen "the delivery worker ticks" isaac.comm.discord.discord-steps/discord-delivery-worker-ticks
+  "Runs the real delivery worker with the active Discord integration and session store.")
 
 (defthen "a Discord outbound HTTP request to {url:string} matches:"
   isaac.comm.discord.discord-steps/discord-outbound-http-request-to-url-matches

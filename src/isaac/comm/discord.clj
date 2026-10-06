@@ -452,11 +452,12 @@
       (defer-for-gateway raw-target channel-id gw-client)
 
       :else
-      (http-send-result
-        (rest/post-message! {:channel-id  channel-id
-                             :content     (:content record)
-                             :message-cap (:discord/message-cap dcfg)
-                             :token       (:discord/token dcfg)})))))
+      (let [result (http-send-result
+                     (rest/post-message! {:channel-id  channel-id
+                                          :content     (:content record)
+                                          :message-cap (:discord/message-cap dcfg)
+                                          :token       (:discord/token dcfg)}))]
+        (cond-> result (:ok result) (assoc :channel channel-id))))))
 
 (deftype DiscordIntegration [state-dir connect-ws! cfg conn]
   ;; Reconfigurable stays INLINE on purpose: isaac.foundation.config.berths checks
@@ -510,6 +511,12 @@
           user-prefix  (build-user-prefix payload discord-cfg* channel-id)
           full-input   (if user-prefix (str user-prefix "\n" input) input)]
       (when session-name
+        (let [store   (session-store/registered-store)
+              session (session-store/get-session store session-name)]
+          (when (and session (:crew session))
+            (session-store/update-session! store session-name
+                                           {:channels (conj (or (:channels session) #{})
+                                                            (str "discord:" channel-id))})))
         (log/debug :discord.route/inbound
                    :channelId channel-id
                    :guildId (->id (:guild_id payload))
