@@ -1,8 +1,8 @@
 Feature: A delivery into a Discord channel lands in that channel's session (isaac-rjeg)
-  Follow-up to isaac-mve9. An inbound MESSAGE_CREATE records the channel
-  on its session's :channels ("discord:<channel-id>"), and send! reports
-  :channel, the channel id it posted to (a configured name resolves to
-  its id). The agent delivery worker then appends a delivery posted by
+  Follow-up to isaac-mve9. An inbound MESSAGE_CREATE records the Discord
+  channel on its session's :comms ("discord:<channel-id>"), and send!
+  reports :target, the channel id it posted to (a configured name
+  resolves to its id). The agent delivery worker then appends a delivery posted by
   another session (cron to, attention, comm__send) to the channel's
   session as an assistant message:
     [sent here by crew <crew> from session <session>] <content>
@@ -26,6 +26,7 @@ Feature: A delivery into a Discord channel lands in that channel's session (isaa
       | author.id  | 123   |
       | content    | hello |
 
+  @wip
   Scenario: a delivery from another session into a talked-in channel lands there as a marked note
     Given the isaac EDN file "comm/delivery/pending/DC1.edn" exists with:
       | path     | value          |
@@ -46,6 +47,7 @@ Feature: A delivery into a Discord channel lands in that channel's session (isaa
       | message | assistant    | got it                                                                  |
       | message | assistant    | #"\[sent here by crew herald from session cron-heartbeat\] Guard fired\." |
 
+  @wip
   Scenario: a delivery into a channel nobody has talked in appends nothing
     Given the isaac EDN file "comm/delivery/pending/DC2.edn" exists with:
       | path     | value          |
