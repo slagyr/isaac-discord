@@ -193,8 +193,7 @@
 
 (defn- create-session! [session-name crew-id payload]
   (let [session (api/create-session! session-name
-                                   {:channel  "discord"
-                                    :chatType (payload-chat-type payload)
+                                   {:chatType (payload-chat-type payload)
                                     :crew     crew-id
                                     :cwd      (System/getProperty "user.home")
                                     :origin   (payload-origin payload)})]
@@ -457,7 +456,7 @@
                                           :content     (:content record)
                                           :message-cap (:discord/message-cap dcfg)
                                           :token       (:discord/token dcfg)}))]
-        (cond-> result (:ok result) (assoc :channel channel-id))))))
+        (cond-> result (:ok result) (assoc :target channel-id))))))
 
 (deftype DiscordIntegration [state-dir connect-ws! cfg conn]
   ;; Reconfigurable stays INLINE on purpose: isaac.foundation.config.berths checks
@@ -515,7 +514,7 @@
               session (session-store/get-session store session-name)]
           (when (and session (:crew session))
             (session-store/update-session! store session-name
-                                           {:channels (conj (or (:channels session) #{})
+                                           {:comms (conj (or (:comms session) #{})
                                                             (str "discord:" channel-id))})))
         (log/debug :discord.route/inbound
                    :channelId channel-id

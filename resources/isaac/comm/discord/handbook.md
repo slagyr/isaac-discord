@@ -301,3 +301,7 @@ session's origin/channel mapping if this shows up.
   the turn starts and stops when the turn ends, for every outcome — if
   it's stuck, the turn itself likely never reached an end state; check
   `isaac turns show <id>` (`isaac.agent`).
+
+Inbound messages record `"discord:<channel-id>"` in the session's `:comms` set.
+Successful `send!` returns `:target` with the resolved channel id; the delivery
+worker records sends from other sessions in that channel's conversation.
