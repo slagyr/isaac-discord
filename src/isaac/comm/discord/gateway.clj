@@ -1,6 +1,7 @@
 (ns isaac.comm.discord.gateway
   (:require
     [cheshire.core :as json]
+    [clojure.string :as str]
     [isaac.agent.util.ws-client :as ws]
     [isaac.foundation.logger :as log]
     [isaac.foundation.nexus :as nexus]
@@ -15,6 +16,13 @@
 (def ^:private default-reconnect-delay-ms 1000)
 (def ^:private default-reconnect-max-delay-ms 30000)
 (def ^:private max-reconnect-attempts 8)
+(def ^:private normal-close-code 1000)
+;; Discord invalidates the session on a 1000/1001 close; any other code keeps
+;; it resumable (docs: gateway "Initiating a Disconnect").
+(def ^:private resume-close-code 4000)
+(def ^:private invalid-session-min-wait-ms 1000)
+(def ^:private invalid-session-max-wait-ms 5000)
+(def ^:private resume-dial-attempts 2)
 
 (defn- normalize-id-set [values]
   (->> (cond
@@ -42,10 +50,30 @@
     (:send-text! transport)    ((:send-text! transport) (json/generate-string payload))
     :else                      (ws/ws-send! transport (json/generate-string payload))))
 
-(defn- transport-close! [transport]
-  (cond
-    (:close! transport) ((:close! transport))
-    :else               (ws/ws-close! transport)))
+;; isaac-agent's RealWs only closes with 1000. Resolve the field at load so
+;; an agent upgrade that renames it fails loudly, not on an op 7 in production.
+(def ^:private real-ws-websocket-field
+  (when (instance? Class isaac.agent.util.ws_client.RealWs)
+    (.getField ^Class isaac.agent.util.ws_client.RealWs "websocket")))
+
+(defn real-ws-close-code-supported? []
+  (some? real-ws-websocket-field))
+
+(defn- close-real-ws-with-code! [transport code]
+  (let [^java.net.http.WebSocket websocket (.get ^java.lang.reflect.Field real-ws-websocket-field transport)]
+    (.sendClose websocket (int code) "reconnect")
+    nil))
+
+(defn- transport-close!
+  ([transport] (transport-close! transport normal-close-code))
+  ([transport code]
+   (cond
+     (:close-with-code! transport) ((:close-with-code! transport) code)
+     (:close! transport)           ((:close! transport))
+     (and (not= normal-close-code code)
+          (instance? isaac.agent.util.ws_client.RealWs transport))
+     (close-real-ws-with-code! transport code)
+     :else                         (ws/ws-close! transport))))
 
 (defn- transport-receive! [transport]
   (when-not (:callback-driven? transport)
@@ -71,16 +99,22 @@
 (declare start-reader-loop! stop! on-close! attempt-reconnect!
          reconnect-mode-for-close close-status ensure-recovery!)
 
+(defn- mark-auth-sent!
+  "Records the auth status unless a frame handled during the send (op 7/9)
+   already closed this connection."
+  [client status]
+  (swap! (:state client) (fn [s] (if (:transport s) (assoc s :status status :auth-sent? true) s))))
+
 (defn- send-identify! [client]
   (let [payload (identify-payload (:token client))]
     (transport-send! (:transport @(:state client)) payload)
-    (swap! (:state client) assoc :status :identified :auth-sent? true)
+    (mark-auth-sent! client :identified)
     (log/info :discord.gateway/identify :intents intents)))
 
 (defn- send-resume! [client]
   (let [payload (resume-payload client)]
     (transport-send! (:transport @(:state client)) payload)
-    (swap! (:state client) assoc :status :resuming :auth-sent? true)
+    (mark-auth-sent! client :resuming)
     (log/info :discord.gateway/resume :seq (get-in payload [:d :seq]) :session-id (get-in payload [:d :session_id]))))
 
 (defn- heartbeat-ack-missing? [state]
@@ -137,7 +171,10 @@
   (when (heartbeat-ack-missing? @(:state client))
     (log/warn :discord.gateway/heartbeat-ack-timeout
               :sent-sequence (:last-heartbeat-sent-sequence @(:state client)))
-    (on-close! client {:reason "heartbeat-ack-timeout" :status 1006}))
+    ;; Docs (Sending Heartbeats): a zombied connection is closed with a code
+    ;; other than 1000/1001, then the app resumes.
+    (on-close! client {:reason "heartbeat-ack-timeout" :status 1006
+                       :mode   (if (:session-id @(:state client)) :resume :identify)}))
   (when (and (:running? @(:state client))
              (not (heartbeat-ack-missing? @(:state client))))
     (let [seq     (:sequence @(:state client))
@@ -150,7 +187,7 @@
 
 (defn- cancel-heartbeat! [client & [{:keys [reason]}]]
   (when (:heartbeat-task-id @(:state client))
-    (log/warn :discord.gateway/heartbeat-cancelled :reason (or reason "unspecified")))
+    (log/debug :discord.gateway/heartbeat-cancelled :reason (or reason "unspecified")))
   (when-let [task-id (:heartbeat-task-id @(:state client))]
     (when-let [task-sch (:heartbeat-scheduler @(:state client))]
       (scheduler/cancel! task-sch task-id))
@@ -203,6 +240,7 @@
       (swap! (:state client) assoc
              :status                :ready
              :session-id            (get-in message [:d :session_id])
+             :resume-gateway-url    (get-in message [:d :resume_gateway_url])
              :bot-id                (some-> (get-in message [:d :user :id]) str)
              :reconnect-attempts    0
              :reconnect-exhausted?  false)
@@ -251,15 +289,31 @@
 
     nil))
 
+(defn- rand-fraction [client]
+  ((or (:rand-fn client) rand)))
+
+(defn- invalid-session-wait-ms
+  "Uniform in [1000, 5000): Discord's documented 1-5 s wait before a fresh
+   IDENTIFY after opcode 9 d=false."
+  [client]
+  (let [span (- invalid-session-max-wait-ms invalid-session-min-wait-ms)]
+    (+ invalid-session-min-wait-ms (long (* (rand-fraction client) span)))))
+
+(defn- forget-session! [client]
+  (swap! (:state client) assoc :session-id nil :resume-gateway-url nil :sequence nil))
+
 (defn- handle-reconnect-op! [client]
-  (log/warn :discord.gateway/reconnect-requested :opcode 7)
-  (on-close! client {:reason "opcode-7-reconnect" :status 4000 :mode :resume}))
+  (log/info :discord.gateway/reconnect-requested :opcode 7)
+  (on-close! client {:reason "opcode-7-reconnect" :status 4000 :mode :resume :routine? true}))
 
 (defn- handle-invalid-session-op! [client resumable?]
   (log/warn :discord.gateway/invalid-session :opcode 9 :resumable resumable?)
-  (on-close! client {:reason (str "opcode-9-invalid-session-" resumable?)
-                    :status (if resumable? 4000 4009)
-                    :mode   (if resumable? :resume :identify)}))
+  (when-not resumable? (forget-session! client))
+  (on-close! client (cond-> {:reason   (str "opcode-9-invalid-session-" resumable?)
+                             :status   (if resumable? 4000 4009)
+                             :mode     (if resumable? :resume :identify)
+                             :routine? true}
+                      (not resumable?) (assoc :delay-ms (invalid-session-wait-ms client)))))
 
 (defn- handle-frame! [client message]
   (when-let [sequence (:s message)]
@@ -284,14 +338,34 @@
     (catch Exception e
       (log/ex :discord.gateway/invalid-frame e :payload text))))
 
+(defn- url-query [url]
+  (if-let [i (str/index-of url "?")] (subs url i) ""))
+
+(defn- reconnect-url
+  "RESUME dials READY's resume_gateway_url with the initial connection's
+   query (v, encoding); IDENTIFY, or a resume with no stored URL, dials the
+   default gateway."
+  [client mode]
+  (let [resume-base (:resume-gateway-url @(:state client))]
+    (if (and (= :resume mode) resume-base)
+      (str (str/replace resume-base #"/+$" "") "/" (url-query (:url client)))
+      (:url client))))
+
 (defn- do-reconnect! [client mode]
-  (let [transport (or ((:connect-ws! client) (:url client) (:handlers client))
+  (let [transport (or ((:connect-ws! client) (reconnect-url client mode) (:handlers client))
                       (throw (ex-info "connect failed" {:mode mode})))]
-    (swap! (:state client) assoc :status :connected :transport transport)
-    (start-reader-loop! client transport)
-    (case mode
-      :resume (send-resume! client)
-      :identify (send-identify! client))))
+    (if-not (:running? @(:state client))
+      ;; stopped while this attempt was connecting: don't adopt the socket
+      (transport-close! transport normal-close-code)
+      (do
+        ;; adopt the socket and release the attempt claim together, so a close
+        ;; (op 7/9) on the new socket can schedule the next reconnect
+        (swap! (:state client) #(-> % (assoc :status :connected :transport transport)
+                                    (dissoc :reconnect-task-id)))
+        (start-reader-loop! client transport)
+        (case mode
+          :resume (send-resume! client)
+          :identify (send-identify! client))))))
 
 (defn- park! [client]
   (log/error :discord.gateway/reconnect-exhausted :attempts max-reconnect-attempts)
@@ -301,6 +375,18 @@
 
 (defn- record-attempt! [client]
   (:reconnect-attempts (swap! (:state client) update :reconnect-attempts (fnil inc 0))))
+
+(defn- backoff-delay-ms
+  "Equal-jitter exponential backoff: d = min(cap, base * 2^(attempt-1)),
+   delay uniform in [d/2, d]. Never exceeds the cap."
+  [client attempt]
+  (let [base (max 1 (or (:reconnect-delay-ms client) default-reconnect-delay-ms))
+        cap  (max 1 (or (:reconnect-max-delay-ms client) default-reconnect-max-delay-ms))
+        d    (min cap (* base (bit-shift-left 1 (min 20 (max 0 (dec attempt))))))
+        half (quot d 2)]
+    (max 1 (+ (- d half) (long (* (rand-fraction client) half))))))
+
+(declare schedule-attempt!)
 
 (defn- reconnect-handler [client mode]
   (fn [_ctx]
@@ -313,11 +399,24 @@
             (log/info :discord.gateway/reconnect-attempt :mode mode :attempt n)
             (try
               (do-reconnect! client mode)
-              (swap! (:state client) dissoc :reconnect-task-id)
               (catch Exception e
-                (if (>= n max-reconnect-attempts)
+                (cond
+                  (not (:running? @(:state client)))
+                  (swap! (:state client) dissoc :reconnect-task-id)
+
+                  (>= n max-reconnect-attempts)
                   (park! client)
-                  (throw e))))))))))
+
+                  :else
+                  (let [delay-ms  (backoff-delay-ms client (inc n))
+                        ;; docs (Handling a Disconnect): if the reconnect fails,
+                        ;; open a new connection on the initial URL and identify.
+                        ;; One retry of the resume URL covers a blip.
+                        next-mode (if (and (= :resume mode) (>= n resume-dial-attempts)) :identify mode)]
+                    (log/warn :discord.gateway/reconnect-failed
+                              :mode mode :next-mode next-mode :attempt n :next-delay-ms delay-ms
+                              :error-class (.getName (class e)) :error (.getMessage e))
+                    (schedule-attempt! client next-mode delay-ms)))))))))))
 
 (defn- cancel-reconnect! [client]
   (when-let [sch (or (:scheduler client) (nexus/get :scheduler))]
@@ -336,28 +435,31 @@
     (and (not (reconnect-pending? old))
          (not (:reconnect-exhausted? old)))))
 
-(defn- schedule-reconnect! [client mode]
-  (when-let [sch (or (:scheduler client) (nexus/get :scheduler))]
-    (when (claim-reconnect! client)
-      (let [base-delay (max 1 (or (:reconnect-delay-ms client) default-reconnect-delay-ms))
-            max-delay  (max 1 (or (:reconnect-max-delay-ms client) default-reconnect-max-delay-ms))]
-        (try
-          (scheduler/schedule!
-            sch
-            {:id             reconnect-task-id
-             :trigger        {:kind :delay :ms base-delay}
-             :handler        (reconnect-handler client mode)
-             :on-error       :retry
-             :backoff-ms     base-delay
-             :max-backoff-ms max-delay
-             :retry-attempts max-reconnect-attempts})
-          (catch Exception e
-            (swap! (:state client) dissoc :reconnect-task-id)
-            (throw e)))))))
+(defn- schedule-attempt!
+  "Schedules one reconnect attempt `delay-ms` from now (the scheduler clock),
+   as its own one-shot task. The gateway owns the backoff: the scheduler's
+   :retry policy anchors each retry to the failed run's scheduled time, so a
+   slow connect failure made every remaining retry fire at once."
+  [client mode delay-ms]
+  (let [sch (client-scheduler client)
+        id  (keyword "discord.gateway" (str "reconnect-" (random-uuid)))]
+    (swap! (:state client) assoc :reconnect-task-id id)
+    (try
+      (scheduler/schedule! sch {:id      id
+                                :trigger {:kind :delay :ms (max 1 delay-ms)}
+                                :handler (reconnect-handler client mode)})
+      (catch Exception e
+        (swap! (:state client) dissoc :reconnect-task-id)
+        (throw e)))))
 
-(defn- attempt-reconnect! [client mode]
-  (if (or (:scheduler client) (nexus/get :scheduler))
-    (schedule-reconnect! client mode)
+(defn- schedule-reconnect! [client mode delay-ms]
+  (when (client-scheduler client)
+    (when (claim-reconnect! client)
+      (schedule-attempt! client mode (or delay-ms (backoff-delay-ms client 1))))))
+
+(defn- attempt-reconnect! [client mode & [delay-ms]]
+  (if (client-scheduler client)
+    (schedule-reconnect! client mode delay-ms)
     (when-not (or (reconnect-pending? @(:state client))
                   (:reconnect-exhausted? @(:state client)))
       (log/info :discord.gateway/reconnect-attempt :mode mode)
@@ -384,10 +486,11 @@
 (defn- reconnect-after-close! [client payload status reason]
   (let [mode  (or (:mode payload) (reconnect-mode-for-close status))
         state @(:state client)]
-    (log/warn :discord.gateway/disconnected :payload payload :status status :reason reason :mode mode)
+    (log/log (if (:routine? payload) :info :warn)
+             :discord.gateway/disconnected :payload payload :status status :reason reason :mode mode)
     (when-not (or (reconnect-pending? state) (:reconnect-exhausted? state))
       (try
-        (attempt-reconnect! client mode)
+        (attempt-reconnect! client mode (:delay-ms payload))
         (catch Exception e
           (log/ex :discord.gateway/reconnect-schedule-failed e :mode mode :reason reason)
           (ensure-recovery! client))))))
@@ -399,9 +502,13 @@
       (cancel-heartbeat! client {:reason (or reason "connection-closed")})
       (when-let [transport (:transport @(:state client))]
         (try
-          (transport-close! transport)
+          (transport-close! transport (if (= :resume (or (:mode payload) (reconnect-mode-for-close status)))
+                                        resume-close-code
+                                        normal-close-code))
           (catch Exception e
-            (log/ex :discord.gateway/transport-close-failed e :reason reason))))
+            ;; the peer usually closed first; a failed close of a dead socket is not actionable
+            (log/debug :discord.gateway/transport-close-failed :reason reason
+                       :error-class (.getName (class e))))))
       (swap! (:state client) assoc :status :disconnected :disconnect payload :transport nil)
       (if (fatal-close? status)
         (do
@@ -414,16 +521,27 @@
         (when-not (fatal-close? status)
           (ensure-recovery! client))))))
 
-(defn- start-reader-loop! [client transport]
+(defn- current-transport? [client transport]
+  (let [state @(:state client)]
+    (and (:running? state) (identical? transport (:transport state)))))
+
+(defn- start-reader-loop!
+  "Reads frames until its transport is no longer the client's current one.
+   A reader whose socket was replaced (reconnect) or stopped exits quietly
+   instead of running on-close! a second time."
+  [client transport]
   (when-not (:callback-driven? transport)
     (future
       (try
         (loop []
-          (if (:running? @(:state client))
+          (if (current-transport? client transport)
             (let [message (transport-receive! transport)]
               (cond
                 (= ws/timeout message)
                 (recur)
+
+                (not (current-transport? client transport))
+                (log/debug :discord.gateway/reader-superseded)
 
                 (nil? message)
                 (on-close! client (or (ws/ws-close-payload transport) {:reason "reader-nil-message"}))
@@ -446,7 +564,7 @@
                 (do
                   (receive-text! client message)
                   (recur))))
-            nil))
+            (log/debug :discord.gateway/reader-superseded)))
         (catch Exception e
           (log/ex :discord.gateway/reader-loop-failed e)
           (try
@@ -457,7 +575,7 @@
 
 (defn connect!
   [{:keys [token url connect-ws! scheduler allow-from-users allow-from-guilds on-accepted-message!
-           reconnect-delay-ms reconnect-max-delay-ms]
+           reconnect-delay-ms reconnect-max-delay-ms rand-fn]
     :or   {url gateway-url connect-ws! default-connect-ws!}}]
   (let [state      (atom {:status     :disconnected
                           :accepted   []
@@ -476,6 +594,7 @@
                     :scheduler              scheduler
                     :reconnect-delay-ms     reconnect-delay-ms
                     :reconnect-max-delay-ms reconnect-max-delay-ms
+                    :rand-fn                rand-fn
                     :allow-from-users       (atom (normalize-id-set allow-from-users))
                     :allow-from-guilds      (atom (normalize-id-set allow-from-guilds))
                     :on-accepted-message!   on-accepted-message!
@@ -515,5 +634,10 @@
   (cancel-heartbeat! client {:reason "stop"})
   (cancel-reconnect! client)
   (when-let [transport (:transport @(:state client))]
-    (transport-close! transport))
+    (swap! (:state client) assoc :transport nil)
+    (try
+      (transport-close! transport normal-close-code)
+      (catch Exception e
+        (log/debug :discord.gateway/transport-close-failed :reason "stop"
+                   :error-class (.getName (class e))))))
   nil)

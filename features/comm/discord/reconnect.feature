@@ -55,7 +55,7 @@ Feature: Discord Gateway reconnect
     And the Discord client sends exactly one RESUME or IDENTIFY on reconnect
     And the log has entries matching:
       | level | event                                |
-      | :warn | :discord.gateway/reconnect-requested |
+      | :info | :discord.gateway/reconnect-requested |
 
   Scenario: reconnect failures park instead of IDENTIFY-storming
     Given the Discord Gateway fails subsequent connections
